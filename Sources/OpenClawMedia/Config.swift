@@ -13,6 +13,19 @@ struct AppConfig: Codable, Equatable {
     var preferHTTPS: Bool
     var allowInsecureLocalhost: Bool
 
+    enum CodingKeys: String, CodingKey {
+        case appName
+        case movieBaseURL
+        case musicBaseURL
+        case iptvPlaylistURL
+        case aiImageProviderBaseURL
+        case aiImageProviderModel
+        case aiImageAPIKey
+        case apiTimeoutSeconds
+        case preferHTTPS
+        case allowInsecureLocalhost
+    }
+
     init(
         appName: String,
         movieBaseURL: URL,
