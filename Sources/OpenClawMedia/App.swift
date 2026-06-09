@@ -416,7 +416,8 @@ struct ImageGenView: View {
                 Spacer()
             }
             .padding(18)
-            .frame(width: 330, maxHeight: .infinity)
+            .frame(width: 330)
+            .frame(maxHeight: .infinity)
             .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(AppTheme.hairline))
         }
@@ -678,7 +679,8 @@ struct DetailPanel: View {
             Spacer()
         }
         .padding(18)
-        .frame(width: 330, maxHeight: .infinity)
+        .frame(width: 330)
+        .frame(maxHeight: .infinity)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(AppTheme.hairline))
     }
