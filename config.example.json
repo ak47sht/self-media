@@ -1,0 +1,8 @@
+{
+  "appName": "OpenClaw Media",
+  "movieBaseURL": "https://your-movie-domain.example",
+  "musicBaseURL": "https://your-music-domain.example",
+  "apiTimeoutSeconds": 15,
+  "preferHTTPS": true,
+  "allowInsecureLocalhost": false
+}

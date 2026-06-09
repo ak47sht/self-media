@@ -1,0 +1,30 @@
+# macOS
+.DS_Store
+
+# Xcode
+DerivedData/
+build/
+*.xcuserdata/
+*.xcuserstate
+*.moved-aside
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Package.resolved
+
+# Local secrets / machine-specific config
+.env
+*.p8
+*.mobileprovision
+*.cer
+*.p12
+config.local.json
+
+# Release artifacts
+dist/
+*.dmg
+*.zip
