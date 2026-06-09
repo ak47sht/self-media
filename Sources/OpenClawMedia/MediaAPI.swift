@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 
 final class MediaAPI: ObservableObject {
     private let config: AppConfig
@@ -14,6 +15,13 @@ final class MediaAPI: ObservableObject {
         var items: [URLQueryItem] = [URLQueryItem(name: "show_limited", value: showLimited ? "1" : "0")]
         if !query.isEmpty { items.append(URLQueryItem(name: "q", value: query)) }
         return try await get(base: config.movieBaseURL, path: "/api/iptv/channels", queryItems: items)
+    }
+
+    func iptvChannel(name: String, showLimited: Bool = true) async throws -> IPTVChannel {
+        try await get(base: config.movieBaseURL, path: "/api/iptv/channel", queryItems: [
+            URLQueryItem(name: "name", value: name),
+            URLQueryItem(name: "show_limited", value: showLimited ? "1" : "0")
+        ])
     }
 
     func searchSongs(query: String) async throws -> MusicSearchResponse {
@@ -41,7 +49,8 @@ final class MediaAPI: ObservableObject {
     }
 
     private func get<T: Decodable>(base: URL, path: String, queryItems: [URLQueryItem]) async throws -> T {
-        var components = URLComponents(url: base.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
+        let cleanPath = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        var components = URLComponents(url: base.appendingPathComponent(cleanPath), resolvingAgainstBaseURL: false)!
         components.queryItems = queryItems.isEmpty ? nil : queryItems
         guard let url = components.url else { throw URLError(.badURL) }
         let (data, response) = try await session.data(from: url)

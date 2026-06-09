@@ -83,9 +83,9 @@ enum SourcePresets {
                 id: "local-m3u-placeholder",
                 name: "Local IPTV playlist",
                 kind: .iptvM3U,
-                baseURL: nil,
+                baseURL: config.iptvPlaylistURL,
                 fileURL: nil,
-                enabled: false,
+                enabled: config.iptvPlaylistURL != nil,
                 priority: 30,
                 tags: ["M3U", "local"],
                 capabilities: [
@@ -97,9 +97,9 @@ enum SourcePresets {
                 id: "ai-image-provider-placeholder",
                 name: "AI image provider",
                 kind: .aiImageProvider,
-                baseURL: URL(string: "https://api.example.com/v1"),
+                baseURL: config.aiImageProviderBaseURL,
                 fileURL: nil,
-                enabled: false,
+                enabled: config.aiImageProviderBaseURL?.host?.contains("example") == false,
                 priority: 40,
                 tags: ["AI", "image", "keychain"],
                 capabilities: [

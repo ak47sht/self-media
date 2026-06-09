@@ -1,12 +1,12 @@
 import SwiftUI
+import AVKit
+import AppKit
 
 @main
 struct OpenClawMediaApp: App {
-    private let config = ConfigLoader.load()
-
     var body: some Scene {
         WindowGroup {
-            ContentView(config: config)
+            ContentView()
                 .preferredColorScheme(.dark)
         }
         .windowStyle(.hiddenTitleBar)
@@ -14,14 +14,11 @@ struct OpenClawMediaApp: App {
 }
 
 struct ContentView: View {
-    let config: AppConfig
+    @State private var config = ConfigLoader.load()
 
     var body: some View {
-        if config.needsSetup {
-            SetupView(config: config)
-        } else {
-            MediaHomeView(api: MediaAPI(config: config), config: config)
-        }
+        MediaHomeView(config: $config)
+            .id(config.movieBaseURL.absoluteString + config.musicBaseURL.absoluteString)
     }
 }
 
@@ -81,8 +78,9 @@ struct SetupView: View {
 }
 
 struct MediaHomeView: View {
+    @Binding var config: AppConfig
     @StateObject private var api: MediaAPI
-    let config: AppConfig
+    @StateObject private var playback = NativePlaybackManager()
 
     @State private var mode: MediaMode = .iptv
     @State private var sidebarSelection: SidebarSelection = .movie
@@ -91,11 +89,13 @@ struct MediaHomeView: View {
     @State private var query = ""
     @State private var status = "Ready"
     @State private var selectedChannel: IPTVChannel?
+    @State private var selectedRoute: IPTVRoute?
     @State private var selectedSong: Song?
+    @State private var lyrics: LyricsResponse?
 
-    init(api: MediaAPI, config: AppConfig) {
-        _api = StateObject(wrappedValue: api)
-        self.config = config
+    init(config: Binding<AppConfig>) {
+        _config = config
+        _api = StateObject(wrappedValue: MediaAPI(config: config.wrappedValue))
     }
 
     var body: some View {
@@ -115,12 +115,23 @@ struct MediaHomeView: View {
                         mode = .iptv
                     }
                 case .iptv, .music, .queue:
-                    MainPanel(mode: $mode, query: $query, channels: channels, songs: songs, selectedChannel: $selectedChannel, selectedSong: $selectedSong, status: status, loadChannels: loadChannels, searchSongs: searchSongs)
-                    DetailPanel(mode: mode, channel: selectedChannel, song: selectedSong, status: status)
+                    MainPanel(mode: $mode, query: $query, channels: channels, songs: songs, selectedChannel: $selectedChannel, selectedSong: $selectedSong, status: status, loadChannels: loadChannels, searchSongs: searchSongs, selectChannel: selectChannel, selectSong: selectSong)
+                    DetailPanel(
+                        mode: mode,
+                        channel: selectedChannel,
+                        selectedRoute: $selectedRoute,
+                        song: selectedSong,
+                        lyrics: lyrics,
+                        playback: playback,
+                        status: status,
+                        playChannel: playSelectedChannel,
+                        playSong: playSelectedSong,
+                        copyCurrentURL: copyCurrentURL
+                    )
                 case .imageGen:
                     ImageGenView(sources: SourcePresets.defaultSources(config: config))
                 case .settings:
-                    SourcesSettingsView(sources: SourcePresets.defaultSources(config: config))
+                    ConfigurationCenterView(config: $config)
                 }
             }
             .padding(16)
@@ -150,11 +161,67 @@ struct MediaHomeView: View {
             let response = try await api.searchSongs(query: query)
             songs = response.songs
             selectedSong = response.songs.first
+            lyrics = nil
             mode = .music
             status = "Found \(response.count) songs"
         } catch {
             status = "音乐搜索失败：\(error.localizedDescription)"
         }
+    }
+
+    private func selectChannel(_ channel: IPTVChannel) {
+        selectedChannel = channel
+        selectedRoute = channel.routes.first
+        mode = .iptv
+    }
+
+    private func selectSong(_ song: Song) {
+        selectedSong = song
+        lyrics = nil
+        mode = .music
+    }
+
+    private func playSelectedChannel() async {
+        guard let channel = selectedChannel else { return }
+        if selectedRoute == nil { selectedRoute = channel.routes.first }
+        guard let resolved = PlaybackRouteResolver.resolve(channel: channel, selectedRoute: selectedRoute, allowHTTP: config.allowInsecureLocalhost) else {
+            status = "没有可播放的视频 URL"
+            return
+        }
+        playback.play(url: resolved.url, title: channel.name)
+        status = "原生播放：\(channel.name) · \(resolved.reason)"
+    }
+
+    private func playSelectedSong() async {
+        guard let song = selectedSong else { return }
+        do {
+            status = "Resolving audio URL…"
+            let response = try await api.playURL(for: song)
+            guard let value = response.url, let url = URL(string: value) else {
+                status = response.error ?? "没有可播放的音乐 URL"
+                return
+            }
+            playback.play(url: url, title: "\(song.name) — \(song.artist)")
+            status = "原生播放：\(song.name)"
+            Task { await loadLyrics(for: song) }
+        } catch {
+            status = "音乐播放失败：\(error.localizedDescription)"
+        }
+    }
+
+    private func loadLyrics(for song: Song) async {
+        do {
+            lyrics = try await api.lyrics(for: song)
+        } catch {
+            // Lyrics are optional; keep playback running.
+        }
+    }
+
+    private func copyCurrentURL() {
+        guard let url = playback.nowPlayingURL else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(url.absoluteString, forType: .string)
+        status = "已复制当前播放 URL"
     }
 }
 
@@ -434,6 +501,8 @@ struct MainPanel: View {
     let status: String
     let loadChannels: () async -> Void
     let searchSongs: () async -> Void
+    let selectChannel: (IPTVChannel) -> Void
+    let selectSong: (Song) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -490,13 +559,13 @@ struct MainPanel: View {
                     if mode == .iptv {
                         ForEach(channels.prefix(80)) { channel in
                             ChannelRow(channel: channel, active: selectedChannel?.id == channel.id) {
-                                selectedChannel = channel
+                                selectChannel(channel)
                             }
                         }
                     } else {
                         ForEach(songs.prefix(80)) { song in
                             SongRow(song: song, active: selectedSong?.id == song.id) {
-                                selectedSong = song
+                                selectSong(song)
                             }
                         }
                     }
@@ -508,6 +577,200 @@ struct MainPanel: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(AppTheme.panel, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(AppTheme.hairline))
+    }
+}
+
+struct EditableAppConfig {
+    var appName: String
+    var movieBaseURL: String
+    var musicBaseURL: String
+    var iptvPlaylistURL: String
+    var aiImageProviderBaseURL: String
+    var aiImageProviderModel: String
+    var aiImageAPIKey: String
+    var apiTimeoutSeconds: String
+    var preferHTTPS: Bool
+    var allowInsecureLocalhost: Bool
+
+    init(config: AppConfig) {
+        appName = config.appName
+        movieBaseURL = config.movieBaseURL.absoluteString
+        musicBaseURL = config.musicBaseURL.absoluteString
+        iptvPlaylistURL = config.iptvPlaylistURL?.absoluteString ?? ""
+        aiImageProviderBaseURL = config.aiImageProviderBaseURL?.absoluteString ?? ""
+        aiImageProviderModel = config.aiImageProviderModel
+        aiImageAPIKey = config.aiImageAPIKey
+        apiTimeoutSeconds = String(format: "%.0f", config.apiTimeoutSeconds)
+        preferHTTPS = config.preferHTTPS
+        allowInsecureLocalhost = config.allowInsecureLocalhost
+    }
+
+    func build() -> AppConfig? {
+        guard let movie = URL(string: movieBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)),
+              let music = URL(string: musicBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)) else { return nil }
+        let iptv = iptvPlaylistURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : URL(string: iptvPlaylistURL.trimmingCharacters(in: .whitespacesAndNewlines))
+        let aiBase = aiImageProviderBaseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : URL(string: aiImageProviderBaseURL.trimmingCharacters(in: .whitespacesAndNewlines))
+        return AppConfig(
+            appName: appName.isEmpty ? "OpenClaw Media" : appName,
+            movieBaseURL: movie,
+            musicBaseURL: music,
+            iptvPlaylistURL: iptv,
+            aiImageProviderBaseURL: aiBase,
+            aiImageProviderModel: aiImageProviderModel.isEmpty ? "provider-default" : aiImageProviderModel,
+            aiImageAPIKey: aiImageAPIKey,
+            apiTimeoutSeconds: Double(apiTimeoutSeconds) ?? 15,
+            preferHTTPS: preferHTTPS,
+            allowInsecureLocalhost: allowInsecureLocalhost
+        )
+    }
+}
+
+struct ConfigurationCenterView: View {
+    @Binding var config: AppConfig
+    @State private var draft: EditableAppConfig
+    @State private var saveStatus = "Configuration is stored locally only."
+
+    init(config: Binding<AppConfig>) {
+        _config = config
+        _draft = State(initialValue: EditableAppConfig(config: config.wrappedValue))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Settings")
+                        .font(.system(size: 28, weight: .semibold, design: .rounded))
+                    Text("配置视频源、音乐源、IPTV/M3U 和 AI 生图 provider；保存后写入 Application Support。")
+                        .font(.system(size: 13))
+                        .foregroundStyle(AppTheme.secondaryText)
+                }
+                Spacer()
+                Button("Save configuration") { save() }
+                    .buttonStyle(.borderedProminent)
+                    .tint(AppTheme.purple)
+            }
+
+            HStack(spacing: 10) {
+                SourcePrincipleChip(title: "Direct play locally", icon: "play.rectangle.on.rectangle")
+                SourcePrincipleChip(title: "Backend normalized", icon: "server.rack")
+                SourcePrincipleChip(title: "Keys stay local", icon: "key.fill")
+            }
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    ConfigSection(title: "Video", subtitle: "Movie backend + IPTV playlist") {
+                        ConfigTextField(title: "Movie backend URL", placeholder: "https://domain/tools/movie-lite", text: $draft.movieBaseURL)
+                        ConfigTextField(title: "IPTV / M3U URL", placeholder: "https://domain/playlist.m3u or local-compatible URL", text: $draft.iptvPlaylistURL)
+                    }
+
+                    ConfigSection(title: "Music", subtitle: "Music search, play-url and lyrics backend") {
+                        ConfigTextField(title: "Music backend URL", placeholder: "https://domain/tools/music-lite", text: $draft.musicBaseURL)
+                    }
+
+                    ConfigSection(title: "AI Image", subtitle: "Client direct provider configuration") {
+                        ConfigTextField(title: "AI provider base URL", placeholder: "https://api.provider.com/v1", text: $draft.aiImageProviderBaseURL)
+                        ConfigTextField(title: "AI provider model", placeholder: "gpt-image-1 / flux / provider model id", text: $draft.aiImageProviderModel)
+                        SecureConfigField(title: "AI provider API key", placeholder: "Stored in local config for now; Keychain next", text: $draft.aiImageAPIKey)
+                    }
+
+                    ConfigSection(title: "Runtime", subtitle: "Compatibility and network behavior") {
+                        ConfigTextField(title: "App name", placeholder: "OpenClaw Media", text: $draft.appName)
+                        ConfigTextField(title: "API timeout seconds", placeholder: "15", text: $draft.apiTimeoutSeconds)
+                        Toggle("Prefer HTTPS", isOn: $draft.preferHTTPS)
+                        Toggle("Allow insecure localhost", isOn: $draft.allowInsecureLocalhost)
+                    }
+
+                    SourcesSettingsView(sources: SourcePresets.defaultSources(config: draft.build() ?? config))
+                }
+                .padding(.vertical, 4)
+            }
+
+            Text(saveStatus)
+                .font(.system(size: 12))
+                .foregroundStyle(saveStatus.contains("Saved") ? AppTheme.green : AppTheme.mutedText)
+                .padding(.top, 2)
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(AppTheme.panel, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(AppTheme.hairline))
+    }
+
+    private func save() {
+        guard let next = draft.build() else {
+            saveStatus = "Invalid URL. Please check Movie backend URL and Music backend URL."
+            return
+        }
+        do {
+            try ConfigStore.save(next)
+            config = next
+            saveStatus = "Saved configuration to ~/Library/Application Support/OpenClawMedia/config.json. Restart is recommended after changing backend URLs."
+        } catch {
+            saveStatus = "Save failed: \(error.localizedDescription)"
+        }
+    }
+}
+
+struct ConfigSection<Content: View>: View {
+    let title: String
+    let subtitle: String
+    let content: Content
+
+    init(title: String, subtitle: String, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.subtitle = subtitle
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(title).font(.system(size: 16, weight: .semibold))
+                Spacer()
+                Text(subtitle).font(.system(size: 12)).foregroundStyle(AppTheme.mutedText)
+            }
+            content
+        }
+        .padding(14)
+        .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(AppTheme.hairline))
+    }
+}
+
+struct ConfigTextField: View {
+    let title: String
+    let placeholder: String
+    @Binding var text: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title).font(.system(size: 12, weight: .semibold)).foregroundStyle(AppTheme.secondaryText)
+            TextField(placeholder, text: $text)
+                .textFieldStyle(.plain)
+                .font(.system(size: 13, design: .monospaced))
+                .padding(10)
+                .background(AppTheme.elevated, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(AppTheme.hairline))
+        }
+    }
+}
+
+struct SecureConfigField: View {
+    let title: String
+    let placeholder: String
+    @Binding var text: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title).font(.system(size: 12, weight: .semibold)).foregroundStyle(AppTheme.secondaryText)
+            SecureField(placeholder, text: $text)
+                .textFieldStyle(.plain)
+                .font(.system(size: 13, design: .monospaced))
+                .padding(10)
+                .background(AppTheme.elevated, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(AppTheme.hairline))
+        }
     }
 }
 
@@ -635,8 +898,14 @@ struct SourceCard: View {
 struct DetailPanel: View {
     let mode: MediaMode
     let channel: IPTVChannel?
+    @Binding var selectedRoute: IPTVRoute?
     let song: Song?
+    let lyrics: LyricsResponse?
+    @ObservedObject var playback: NativePlaybackManager
     let status: String
+    let playChannel: () async -> Void
+    let playSong: () async -> Void
+    let copyCurrentURL: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -645,27 +914,37 @@ struct DetailPanel: View {
                 .foregroundStyle(AppTheme.secondaryText)
 
             VStack(alignment: .leading, spacing: 12) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 22, style: .continuous)
-                        .fill(LinearGradient(colors: [AppTheme.blue.opacity(0.92), AppTheme.green.opacity(0.65)], startPoint: .topLeading, endPoint: .bottomTrailing))
-                    Image(systemName: mode == .iptv ? "play.tv.fill" : "music.note")
-                        .font(.system(size: 56, weight: .semibold))
-                        .foregroundStyle(.white.opacity(0.9))
-                }
-                .frame(height: 178)
+                NativePlayerSurface(player: playback.player, mode: mode, active: playback.nowPlayingURL != nil)
 
                 if mode == .iptv, let channel {
                     Text(channel.name).font(.system(size: 24, weight: .semibold))
                     Text([channel.group, channel.sourceName].filter { !$0.isEmpty }.joined(separator: " · "))
                         .foregroundStyle(AppTheme.secondaryText)
                     BadgeRow(items: [channel.browserPlayable ? "Native playable" : "Limited", "\(channel.routes.count) routes"])
-                    RouteList(routes: channel.routes)
+                    RouteList(routes: channel.routes, selectedRoute: $selectedRoute)
+                    PlaybackActionRow(
+                        primaryTitle: "Play video",
+                        isPlaying: playback.isPlaying,
+                        play: { Task { await playChannel() } },
+                        pause: { playback.pause() },
+                        resume: { playback.resume() },
+                        stop: { playback.stop() },
+                        copyURL: copyCurrentURL
+                    )
                 } else if mode == .music, let song {
                     Text(song.name).font(.system(size: 24, weight: .semibold))
                     Text(song.artist).foregroundStyle(AppTheme.secondaryText)
                     BadgeRow(items: [song.source, song.duration ?? "unknown"])
-                    PlayerControls()
-                    LyricsPreview()
+                    PlaybackActionRow(
+                        primaryTitle: "Play music",
+                        isPlaying: playback.isPlaying,
+                        play: { Task { await playSong() } },
+                        pause: { playback.pause() },
+                        resume: { playback.resume() },
+                        stop: { playback.stop() },
+                        copyURL: copyCurrentURL
+                    )
+                    LyricsPreview(lyrics: lyrics)
                 } else {
                     Text("Select an item")
                         .font(.system(size: 22, weight: .semibold))
@@ -675,6 +954,11 @@ struct DetailPanel: View {
             .padding(16)
             .background(AppTheme.elevated, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(AppTheme.hairline))
+
+            Text(playback.playbackStatus == "Idle" ? status : playback.playbackStatus)
+                .font(.system(size: 12))
+                .foregroundStyle(AppTheme.mutedText)
+                .lineLimit(3)
 
             Spacer()
         }
@@ -752,45 +1036,112 @@ struct SongRow: View {
 
 struct RouteList: View {
     let routes: [IPTVRoute]
+    @Binding var selectedRoute: IPTVRoute?
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Routes").font(.system(size: 13, weight: .semibold)).foregroundStyle(AppTheme.secondaryText)
-            ForEach(routes.prefix(4)) { route in
-                HStack {
-                    Text(route.label).lineLimit(1)
-                    Spacer()
-                    Text(route.browserPlayable ? "HTTPS" : "Limited")
-                        .foregroundStyle(route.browserPlayable ? AppTheme.green : AppTheme.amber)
+            ForEach(routes.prefix(6)) { route in
+                Button {
+                    selectedRoute = route
+                } label: {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(route.label.isEmpty ? route.sourceName : route.label).lineLimit(1)
+                            Text(route.playURL.isEmpty ? route.url : route.playURL)
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(AppTheme.mutedText)
+                                .lineLimit(1)
+                        }
+                        Spacer()
+                        Text(route.browserPlayable ? "Native" : "Try")
+                            .foregroundStyle(route.browserPlayable ? AppTheme.green : AppTheme.amber)
+                    }
+                    .font(.system(size: 12, design: .monospaced))
+                    .padding(10)
+                    .background(selectedRoute?.id == route.id ? AppTheme.blue.opacity(0.16) : AppTheme.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(selectedRoute?.id == route.id ? AppTheme.blue.opacity(0.40) : AppTheme.hairline))
                 }
-                .font(.system(size: 12, design: .monospaced))
-                .padding(10)
-                .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .buttonStyle(.plain)
             }
         }
     }
 }
 
-struct PlayerControls: View {
+struct NativePlayerSurface: View {
+    let player: AVPlayer
+    let mode: MediaMode
+    let active: Bool
+
     var body: some View {
-        HStack(spacing: 18) {
-            Image(systemName: "backward.fill")
-            Image(systemName: "play.circle.fill").font(.system(size: 38)).foregroundStyle(AppTheme.green)
-            Image(systemName: "forward.fill")
+        ZStack {
+            if active {
+                VideoPlayer(player: player)
+                    .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+            } else {
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .fill(LinearGradient(colors: [AppTheme.blue.opacity(0.92), AppTheme.green.opacity(0.65)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                Image(systemName: mode == .iptv ? "play.tv.fill" : "music.note")
+                    .font(.system(size: 56, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.9))
+            }
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 4)
+        .frame(height: 178)
+    }
+}
+
+struct PlaybackActionRow: View {
+    let primaryTitle: String
+    let isPlaying: Bool
+    let play: () -> Void
+    let pause: () -> Void
+    let resume: () -> Void
+    let stop: () -> Void
+    let copyURL: () -> Void
+
+    var body: some View {
+        VStack(spacing: 8) {
+            Button {
+                isPlaying ? pause() : play()
+            } label: {
+                Label(isPlaying ? "Pause" : primaryTitle, systemImage: isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(AppTheme.green)
+
+            HStack(spacing: 8) {
+                Button("Resume", action: resume)
+                Button("Stop", action: stop)
+                Button("Copy URL", action: copyURL)
+            }
+            .buttonStyle(.bordered)
+        }
     }
 }
 
 struct LyricsPreview: View {
-    private let lines = ["歌词会在这里按时间滚动", "当前行高亮显示", "保持可读，不显示终端感原文"]
+    let lyrics: LyricsResponse?
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Lyrics").font(.system(size: 13, weight: .semibold)).foregroundStyle(AppTheme.secondaryText)
-            ForEach(lines, id: \.self) { line in
-                Text(line)
+            if let lyrics, !lyrics.lines.isEmpty {
+                ForEach(lyrics.lines.prefix(8)) { line in
+                    Text(line.text)
+                        .font(.system(size: 13))
+                        .foregroundStyle(line.id == lyrics.lines.first?.id ? AppTheme.primaryText : AppTheme.mutedText)
+                        .lineLimit(1)
+                }
+            } else if let lyrics, !lyrics.text.isEmpty {
+                Text(lyrics.text)
                     .font(.system(size: 13))
-                    .foregroundStyle(line == lines.first ? AppTheme.primaryText : AppTheme.mutedText)
+                    .foregroundStyle(AppTheme.primaryText)
+                    .lineLimit(8)
+            } else {
+                Text("点击 Play music 后加载歌词。")
+                    .font(.system(size: 13))
+                    .foregroundStyle(AppTheme.mutedText)
             }
         }
         .padding(12)

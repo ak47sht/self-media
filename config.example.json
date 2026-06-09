@@ -1,7 +1,11 @@
 {
   "appName": "OpenClaw Media",
-  "movieBaseURL": "https://your-movie-domain.example",
-  "musicBaseURL": "https://your-music-domain.example",
+  "movieBaseURL": "https://your-movie-domain.example/tools/movie-lite",
+  "musicBaseURL": "https://your-music-domain.example/tools/music-lite",
+  "iptvPlaylistURL": null,
+  "aiImageProviderBaseURL": "https://api.example.com/v1",
+  "aiImageProviderModel": "provider-default",
+  "aiImageAPIKey": "",
   "apiTimeoutSeconds": 15,
   "preferHTTPS": true,
   "allowInsecureLocalhost": false
