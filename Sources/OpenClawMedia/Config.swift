@@ -58,7 +58,9 @@ struct AppConfig: Codable, Equatable {
         iptvPlaylistURL = try container.decodeIfPresent(URL.self, forKey: .iptvPlaylistURL)
         aiImageProviderBaseURL = try container.decodeIfPresent(URL.self, forKey: .aiImageProviderBaseURL)
         aiImageProviderModel = try container.decodeIfPresent(String.self, forKey: .aiImageProviderModel) ?? "provider-default"
-        aiImageAPIKey = AIProviderSecretStore.readAPIKey() ?? (try container.decodeIfPresent(String.self, forKey: .aiImageAPIKey) ?? "")
+        let storedAIImageAPIKey = AIProviderSecretStore.readAPIKey()
+        let fileAIImageAPIKey = try container.decodeIfPresent(String.self, forKey: .aiImageAPIKey) ?? ""
+        aiImageAPIKey = storedAIImageAPIKey ?? fileAIImageAPIKey
         apiTimeoutSeconds = try container.decodeIfPresent(Double.self, forKey: .apiTimeoutSeconds) ?? 15
         preferHTTPS = try container.decodeIfPresent(Bool.self, forKey: .preferHTTPS) ?? true
         allowInsecureLocalhost = try container.decodeIfPresent(Bool.self, forKey: .allowInsecureLocalhost) ?? false
