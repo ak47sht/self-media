@@ -5,6 +5,7 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
   public-safety:
@@ -15,10 +16,83 @@ jobs:
         with:
           python-version: '3.x'
       - run: python3 scripts/public_safety_check.py
+      - run: python3 scripts/validate_source_config.py
 
   macos-build:
-    runs-on: macos-latest
+    runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
+
       - name: Build Swift package
-        run: swift build -v
+        run: swift build -c release -v
+
+      - name: Create unsigned .app bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP_NAME="OpenClaw Media"
+          BUNDLE_DIR="$PWD/build/${APP_NAME}.app"
+          CONTENTS="$BUNDLE_DIR/Contents"
+          MACOS="$CONTENTS/MacOS"
+          RESOURCES="$CONTENTS/Resources"
+
+          rm -rf "$PWD/build"
+          mkdir -p "$MACOS" "$RESOURCES"
+          cp ".build/release/OpenClawMedia" "$MACOS/OpenClawMedia"
+          chmod +x "$MACOS/OpenClawMedia"
+          cp config.example.json "$RESOURCES/config.example.json"
+
+          cat > "$CONTENTS/Info.plist" <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleExecutable</key>
+            <string>OpenClawMedia</string>
+            <key>CFBundleIdentifier</key>
+            <string>ai.nous.openclaw-media</string>
+            <key>CFBundleName</key>
+            <string>OpenClaw Media</string>
+            <key>CFBundleDisplayName</key>
+            <string>OpenClaw Media</string>
+            <key>CFBundlePackageType</key>
+            <string>APPL</string>
+            <key>CFBundleShortVersionString</key>
+            <string>0.2.0</string>
+            <key>CFBundleVersion</key>
+            <string>2</string>
+            <key>LSMinimumSystemVersion</key>
+            <string>13.0</string>
+            <key>NSHighResolutionCapable</key>
+            <true/>
+          </dict>
+          </plist>
+          PLIST
+
+          codesign --force --deep --sign - "$BUNDLE_DIR"
+          find "$BUNDLE_DIR" -maxdepth 3 -type f -print
+
+      - name: Package DMG
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP_NAME="OpenClaw Media"
+          DMG_DIR="$PWD/build/dmg-root"
+          mkdir -p "$DMG_DIR"
+          cp -R "$PWD/build/${APP_NAME}.app" "$DMG_DIR/"
+          ln -s /Applications "$DMG_DIR/Applications"
+          hdiutil create \
+            -volname "$APP_NAME" \
+            -srcfolder "$DMG_DIR" \
+            -ov \
+            -format UDZO \
+            "$PWD/build/OpenClaw-Media-macOS.dmg"
+          hdiutil verify "$PWD/build/OpenClaw-Media-macOS.dmg"
+          ls -lh "$PWD/build/OpenClaw-Media-macOS.dmg"
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenClaw-Media-macOS-dmg
+          path: build/OpenClaw-Media-macOS.dmg
+          if-no-files-found: error

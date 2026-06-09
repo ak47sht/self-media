@@ -85,7 +85,7 @@ struct MediaHomeView: View {
     let config: AppConfig
 
     @State private var mode: MediaMode = .iptv
-    @State private var sidebarSelection: SidebarSelection = .iptv
+    @State private var sidebarSelection: SidebarSelection = .movie
     @State private var channels: [IPTVChannel] = []
     @State private var songs: [Song] = []
     @State private var query = ""
@@ -108,11 +108,19 @@ struct MediaHomeView: View {
 
             HStack(spacing: 14) {
                 Sidebar(selection: $sidebarSelection, mode: $mode, status: status, config: config)
-                if sidebarSelection == .settings {
-                    SourcesSettingsView(sources: SourcePresets.defaultSources(config: config))
-                } else {
+                switch sidebarSelection {
+                case .movie:
+                    MovieDashboardView(channels: channels, config: config) {
+                        sidebarSelection = .iptv
+                        mode = .iptv
+                    }
+                case .iptv, .music, .queue:
                     MainPanel(mode: $mode, query: $query, channels: channels, songs: songs, selectedChannel: $selectedChannel, selectedSong: $selectedSong, status: status, loadChannels: loadChannels, searchSongs: searchSongs)
                     DetailPanel(mode: mode, channel: selectedChannel, song: selectedSong, status: status)
+                case .imageGen:
+                    ImageGenView(sources: SourcePresets.defaultSources(config: config))
+                case .settings:
+                    SourcesSettingsView(sources: SourcePresets.defaultSources(config: config))
                 }
             }
             .padding(16)
@@ -157,9 +165,11 @@ enum MediaMode: String, CaseIterable, Identifiable {
 }
 
 enum SidebarSelection: String, CaseIterable, Identifiable {
+    case movie = "Movie"
     case iptv = "IPTV"
     case music = "Music"
     case queue = "Queue"
+    case imageGen = "Image Gen"
     case settings = "Settings"
     var id: String { rawValue }
 }
@@ -171,32 +181,48 @@ struct Sidebar: View {
     let config: AppConfig
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 16) {
+            TrafficLights()
+                .padding(.bottom, 2)
+
             HStack(spacing: 12) {
-                AppIcon(size: 36)
+                AppIcon(size: 34)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("OpenClaw")
                         .font(.system(size: 16, weight: .semibold, design: .rounded))
-                    Text("Media")
-                        .font(.system(size: 12, weight: .medium))
+                    Text("Personal Media Suite")
+                        .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(AppTheme.secondaryText)
                 }
             }
-            .padding(.bottom, 8)
+            .padding(.bottom, 6)
 
-            VStack(spacing: 8) {
-                SidebarItem(title: "IPTV", icon: "play.tv", active: selection == .iptv) {
+            QuickSearchRow()
+
+            VStack(alignment: .leading, spacing: 6) {
+                SidebarSectionTitle("APPS")
+                SidebarItem(title: "Movie", subtitle: "影视聚合", icon: "film", active: selection == .movie) {
+                    selection = .movie
+                }
+                SidebarItem(title: "IPTV", subtitle: "频道 / 线路", icon: "play.tv", active: selection == .iptv) {
                     selection = .iptv
                     mode = .iptv
                 }
-                SidebarItem(title: "Music", icon: "music.note.list", active: selection == .music) {
+                SidebarItem(title: "Music", subtitle: "搜索 / 播放", icon: "music.note.list", active: selection == .music) {
                     selection = .music
                     mode = .music
                 }
-                SidebarItem(title: "Queue", icon: "text.line.first.and.arrowtriangle.forward", active: selection == .queue) {
+                SidebarItem(title: "Image Gen", subtitle: "AI 生图", icon: "sparkles", active: selection == .imageGen) {
+                    selection = .imageGen
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                SidebarSectionTitle("WORKFLOW")
+                SidebarItem(title: "Queue", subtitle: "播放队列", icon: "text.line.first.and.arrowtriangle.forward", active: selection == .queue) {
                     selection = .queue
                 }
-                SidebarItem(title: "Settings", icon: "gearshape", active: selection == .settings) {
+                SidebarItem(title: "Settings", subtitle: "Sources", icon: "gearshape", active: selection == .settings) {
                     selection = .settings
                 }
             }
@@ -225,8 +251,175 @@ struct Sidebar: View {
         }
         .padding(18)
         .frame(width: 238)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .background(AppTheme.sidebar, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(AppTheme.hairline))
+    }
+}
+
+struct MovieDashboardView: View {
+    let channels: [IPTVChannel]
+    let config: AppConfig
+    let openIPTV: () -> Void
+
+    private let heroTags = ["继续看", "豆瓣热门", "IMDb Top 250", "高分", "科幻", "喜剧", "国产剧"]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Movie Lite")
+                        .font(.system(size: 30, weight: .semibold, design: .rounded))
+                    Text("选片、片源、IPTV 和最近播放都留在本地客户端；后端只做聚合与安全边界。")
+                        .font(.system(size: 13))
+                        .foregroundStyle(AppTheme.secondaryText)
+                }
+                Spacer()
+                Button(action: openIPTV) {
+                    Label("Open IPTV", systemImage: "play.tv")
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(AppTheme.purple)
+            }
+
+            HStack(spacing: 8) {
+                ForEach(heroTags, id: \.self) { tag in
+                    FilterChip(title: tag, active: tag == "继续看")
+                }
+            }
+
+            HStack(spacing: 14) {
+                FeatureCard(title: "继续观看", value: channels.first?.name ?? "等待 IPTV 数据", detail: "打开 App 后自动加载频道；后续接最近播放", icon: "play.rectangle.fill", tint: AppTheme.green)
+                FeatureCard(title: "可用频道", value: "\(channels.count)", detail: "来自 Movie Lite 后端 normalized API", icon: "antenna.radiowaves.left.and.right", tint: AppTheme.blue)
+                FeatureCard(title: "片源策略", value: "Direct", detail: "默认不代理流媒体；支持 IINA / Copy URL", icon: "arrow.up.forward.app", tint: AppTheme.purple)
+            }
+
+            VStack(alignment: .leading, spacing: 12) {
+                SectionHeader(title: "Discovery layout", subtitle: "Figma Make → SwiftUI native translation")
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4), spacing: 12) {
+                    PosterPlaceholder(title: "豆瓣热门", subtitle: "Top picks", gradient: [AppTheme.purple, AppTheme.blue])
+                    PosterPlaceholder(title: "IMDb 250", subtitle: "High score", gradient: [AppTheme.blue, AppTheme.green])
+                    PosterPlaceholder(title: "最近播放", subtitle: "Continue", gradient: [AppTheme.green, AppTheme.amber])
+                    PosterPlaceholder(title: "源管理", subtitle: config.movieBaseURL.host ?? "configured", gradient: [AppTheme.amber, AppTheme.purple])
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+                SectionHeader(title: "Next native functions", subtitle: "功能完善优先级")
+                ChecklistRow(done: true, text: "Movie / IPTV / Music / Image Gen modules share one native shell")
+                ChecklistRow(done: true, text: "Source provider model keeps weak-backend + strong-client architecture")
+                ChecklistRow(done: false, text: "Movie detail API + source route switching")
+                ChecklistRow(done: false, text: "Open in IINA / Copy stream URL actions")
+            }
+            .padding(14)
+            .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(AppTheme.hairline))
+
+            Spacer()
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(AppTheme.panel, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(AppTheme.hairline))
+    }
+}
+
+struct ImageGenView: View {
+    let sources: [MediaSourceConfig]
+    @State private var prompt = ""
+    @State private var negativePrompt = ""
+    @State private var selectedModel = "Provider default"
+    @State private var selectedSize = "1024×1024"
+    @State private var selectedStyle = "Digital Art"
+    @State private var advanced = false
+
+    private let models = ["Provider default", "FLUX.1 Pro", "Stable Diffusion XL", "DALL-E compatible", "Custom model ID"]
+    private let sizes = ["512×512", "768×768", "1024×1024", "1024×768", "768×1024", "1920×1080"]
+    private let styles = ["Photorealistic", "Anime", "Digital Art", "Sketch", "3D Render", "Pixel Art"]
+
+    private var provider: MediaSourceConfig? {
+        sources.first { $0.kind == .aiImageProvider }
+    }
+
+    var body: some View {
+        HStack(spacing: 14) {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(alignment: .firstTextBaseline) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Image Gen")
+                            .font(.system(size: 30, weight: .semibold, design: .rounded))
+                        Text("客户端直连 provider；API key 只应保存在 Keychain，本仓库只保留占位配置。")
+                            .font(.system(size: 13))
+                            .foregroundStyle(AppTheme.secondaryText)
+                    }
+                    Spacer()
+                    ProviderBadge(source: provider)
+                }
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Prompt")
+                        .font(.system(size: 13, weight: .semibold))
+                    TextEditor(text: $prompt)
+                        .font(.system(size: 14))
+                        .scrollContentBackground(.hidden)
+                        .frame(minHeight: 132)
+                        .padding(10)
+                        .background(AppTheme.elevated, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(AppTheme.hairline))
+                }
+
+                HStack(spacing: 10) {
+                    PickerCard(title: "Model", selection: $selectedModel, values: models)
+                    PickerCard(title: "Size", selection: $selectedSize, values: sizes)
+                    PickerCard(title: "Style", selection: $selectedStyle, values: styles)
+                }
+
+                DisclosureGroup(isExpanded: $advanced) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Negative prompt")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(AppTheme.secondaryText)
+                        TextEditor(text: $negativePrompt)
+                            .font(.system(size: 13))
+                            .scrollContentBackground(.hidden)
+                            .frame(height: 74)
+                            .padding(10)
+                            .background(AppTheme.elevated, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        BadgeRow(items: ["Keychain secret", "Model configurable", "Client direct"])
+                    }
+                    .padding(.top, 8)
+                } label: {
+                    Label("Advanced provider settings", systemImage: "slider.horizontal.3")
+                        .font(.system(size: 13, weight: .semibold))
+                }
+
+                Button {
+                    prompt = prompt.isEmpty ? "A cinematic native macOS media cockpit, dark sidebar, purple cyan glow, compact information density" : prompt
+                } label: {
+                    Label("Prepare request", systemImage: "wand.and.stars")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(AppTheme.purple)
+
+                Spacer()
+            }
+            .padding(20)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(AppTheme.panel, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(AppTheme.hairline))
+
+            VStack(alignment: .leading, spacing: 14) {
+                SectionHeader(title: "Gallery", subtitle: "本地历史占位，后续接真实生成结果")
+                ForEach(0..<4, id: \.self) { index in
+                    GeneratedImagePlaceholder(index: index, style: selectedStyle, size: selectedSize)
+                }
+                Spacer()
+            }
+            .padding(18)
+            .frame(width: 330, maxHeight: .infinity)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(AppTheme.hairline))
+        }
     }
 }
 
@@ -603,8 +796,57 @@ struct LyricsPreview: View {
     }
 }
 
+struct TrafficLights: View {
+    var body: some View {
+        HStack(spacing: 7) {
+            Circle().fill(Color(red: 1.0, green: 0.373, blue: 0.341)).frame(width: 12, height: 12)
+            Circle().fill(Color(red: 0.996, green: 0.737, blue: 0.180)).frame(width: 12, height: 12)
+            Circle().fill(Color(red: 0.157, green: 0.784, blue: 0.251)).frame(width: 12, height: 12)
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+struct QuickSearchRow: View {
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(AppTheme.mutedText)
+            Text("Quick search…")
+                .font(.system(size: 12))
+                .foregroundStyle(AppTheme.mutedText)
+            Spacer()
+            Text("⌘K")
+                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .foregroundStyle(AppTheme.mutedText)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 34)
+        .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(AppTheme.hairline))
+    }
+}
+
+struct SidebarSectionTitle: View {
+    let title: String
+    init(_ title: String) { self.title = title }
+    var body: some View {
+        Text(title)
+            .font(.system(size: 10, weight: .bold))
+            .tracking(1.2)
+            .foregroundStyle(AppTheme.mutedText)
+            .padding(.horizontal, 4)
+            .padding(.top, 4)
+    }
+}
+
 struct SidebarItem: View {
     let title: String
+    var subtitle: String = ""
     let icon: String
     let active: Bool
     let action: () -> Void
@@ -613,16 +855,182 @@ struct SidebarItem: View {
         Button(action: action) {
             HStack(spacing: 10) {
                 Image(systemName: icon).frame(width: 18)
-                Text(title)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title)
+                    if !subtitle.isEmpty {
+                        Text(subtitle)
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(active ? AppTheme.secondaryText : AppTheme.mutedText)
+                    }
+                }
                 Spacer()
             }
             .font(.system(size: 13, weight: .semibold))
             .foregroundStyle(active ? AppTheme.primaryText : AppTheme.secondaryText)
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
-            .background(active ? AppTheme.blue.opacity(0.18) : .clear, in: Capsule())
+            .background(active ? AppTheme.purple.opacity(0.20) : .clear, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(active ? AppTheme.purple.opacity(0.32) : .clear))
         }
         .buttonStyle(.plain)
+    }
+}
+
+struct SectionHeader: View {
+    let title: String
+    let subtitle: String
+    var body: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(title)
+                .font(.system(size: 15, weight: .semibold))
+            Spacer()
+            Text(subtitle)
+                .font(.system(size: 12))
+                .foregroundStyle(AppTheme.mutedText)
+        }
+    }
+}
+
+struct FeatureCard: View {
+    let title: String
+    let value: String
+    let detail: String
+    let icon: String
+    let tint: Color
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Image(systemName: icon)
+                    .foregroundStyle(tint)
+                    .frame(width: 30, height: 30)
+                    .background(tint.opacity(0.14), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(AppTheme.mutedText)
+            }
+            Text(title)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(AppTheme.secondaryText)
+            Text(value)
+                .font(.system(size: 19, weight: .semibold, design: .rounded))
+                .lineLimit(1)
+            Text(detail)
+                .font(.system(size: 12))
+                .foregroundStyle(AppTheme.mutedText)
+                .lineLimit(2)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(AppTheme.hairline))
+    }
+}
+
+struct PosterPlaceholder: View {
+    let title: String
+    let subtitle: String
+    let gradient: [Color]
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(LinearGradient(colors: gradient, startPoint: .topLeading, endPoint: .bottomTrailing))
+                .frame(height: 142)
+                .overlay(Image(systemName: "play.fill").font(.system(size: 28, weight: .bold)).foregroundStyle(.white.opacity(0.88)))
+            Text(title)
+                .font(.system(size: 13, weight: .semibold))
+            Text(subtitle)
+                .font(.system(size: 11))
+                .foregroundStyle(AppTheme.mutedText)
+        }
+        .padding(10)
+        .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(AppTheme.hairline))
+    }
+}
+
+struct ChecklistRow: View {
+    let done: Bool
+    let text: String
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: done ? "checkmark.circle.fill" : "circle")
+                .foregroundStyle(done ? AppTheme.green : AppTheme.mutedText)
+            Text(text)
+                .font(.system(size: 13))
+                .foregroundStyle(done ? AppTheme.primaryText : AppTheme.secondaryText)
+            Spacer()
+        }
+    }
+}
+
+struct ProviderBadge: View {
+    let source: MediaSourceConfig?
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "sparkles")
+            VStack(alignment: .leading, spacing: 2) {
+                Text(source?.name ?? "AI image provider")
+                    .font(.system(size: 12, weight: .semibold))
+                Text(source?.endpointSummary ?? "not configured")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(AppTheme.mutedText)
+            }
+        }
+        .foregroundStyle(source?.enabled == true ? AppTheme.green : AppTheme.secondaryText)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(AppTheme.hairline))
+    }
+}
+
+struct PickerCard: View {
+    let title: String
+    @Binding var selection: String
+    let values: [String]
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(AppTheme.mutedText)
+            Picker(title, selection: $selection) {
+                ForEach(values, id: \.self) { Text($0).tag($0) }
+            }
+            .labelsHidden()
+            .frame(maxWidth: .infinity)
+        }
+        .padding(12)
+        .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(AppTheme.hairline))
+    }
+}
+
+struct GeneratedImagePlaceholder: View {
+    let index: Int
+    let style: String
+    let size: String
+    var body: some View {
+        HStack(spacing: 12) {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(LinearGradient(colors: [AppTheme.purple.opacity(0.85), AppTheme.blue.opacity(0.65), AppTheme.green.opacity(0.42)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                .frame(width: 76, height: 76)
+                .overlay(Image(systemName: "photo").foregroundStyle(.white.opacity(0.82)))
+            VStack(alignment: .leading, spacing: 5) {
+                Text("Generation \(index + 1)")
+                    .font(.system(size: 13, weight: .semibold))
+                Text(style)
+                    .font(.system(size: 12))
+                    .foregroundStyle(AppTheme.secondaryText)
+                Text(size)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(AppTheme.mutedText)
+            }
+            Spacer()
+        }
+        .padding(10)
+        .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(AppTheme.hairline))
     }
 }
 
@@ -700,7 +1108,9 @@ enum AppTheme {
     static let secondaryText = Color(red: 0.660, green: 0.690, blue: 0.742)
     static let mutedText = Color(red: 0.410, green: 0.444, blue: 0.502)
     static let hairline = Color.white.opacity(0.08)
+    static let sidebar = Color(red: 0.031, green: 0.031, blue: 0.063).opacity(0.98)
     static let blue = Color(red: 0.039, green: 0.518, blue: 1.0)
+    static let purple = Color(red: 0.545, green: 0.361, blue: 0.965)
     static let green = Color(red: 0.188, green: 0.820, blue: 0.345)
     static let amber = Color(red: 1.0, green: 0.839, blue: 0.039)
 }

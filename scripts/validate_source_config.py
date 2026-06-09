@@ -48,6 +48,7 @@ def test_docs_are_linked() -> None:
             "docs/MEDIA_APP_REFERENCES.md",
             "docs/FIGMA_BRIEF.md",
             "docs/FIGMA_MAKE_PROMPT.md",
+            "docs/FIGMA_MAKE_EXPORT_ANALYSIS.md",
         ],
     )
 
