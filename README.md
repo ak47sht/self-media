@@ -56,5 +56,9 @@ The GitHub Actions workflow runs:
 
 - [Config](docs/CONFIG.md)
 - [API contract](docs/API_CONTRACT.md)
+- [Figma brief](docs/FIGMA_BRIEF.md)
+- [Figma Make prompt](docs/FIGMA_MAKE_PROMPT.md)
+- [Mac media app references](docs/MEDIA_APP_REFERENCES.md)
+- [Configurable sources](docs/CONFIGURABLE_SOURCES.md)
 - [Decisions](docs/DECISIONS.md)
 - [Open-source spike](docs/OPEN_SOURCE_SPIKE.md)
