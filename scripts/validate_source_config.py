@@ -386,6 +386,38 @@ def test_source_management_ui_wired() -> None:
     )
 
 
+def test_keyboard_shortcuts_and_playback_bar_exist() -> None:
+    assert_contains(
+        "Sources/OpenClawMedia/KeyboardShortcuts.swift",
+        [
+            "func establishMediaKeyboardShortcuts",
+            "NSEvent.addLocalMonitorForEvents",
+            "\" \"",
+            "\"k\"",
+            "\"f\"",
+            "\"m\"",
+            "struct PlaybackControlBar",
+            "Slider",
+            "formatTime",
+            "seek(to:",
+        ],
+    )
+
+
+def test_playback_bar_integrated_into_detail_panel() -> None:
+    assert_contains(
+        "Sources/OpenClawMedia/App.swift",
+        [
+            "PlaybackControlBar(playback:",
+            "establishMediaKeyboardShortcuts(playback)",
+            "Space play/pause",
+            "K stop",
+            "F fullscreen",
+            "M mute",
+        ],
+    )
+
+
 if __name__ == "__main__":
     tests = [
         test_source_models_exist,
@@ -408,6 +440,8 @@ if __name__ == "__main__":
         test_favorites_integrated_into_ui,
         test_source_manager_exists,
         test_source_management_ui_wired,
+        test_keyboard_shortcuts_and_playback_bar_exist,
+        test_playback_bar_integrated_into_detail_panel,
     ]
     for test in tests:
         test()
