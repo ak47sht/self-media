@@ -82,6 +82,7 @@ struct MediaHomeView: View {
     @StateObject private var api: MediaAPI
     @StateObject private var playback = NativePlaybackManager()
     @StateObject private var store = LocalStore()
+    @StateObject private var sourceManager = SourceManager()
 
     @State private var mode: MediaMode = .iptv
     @State private var sidebarSelection: SidebarSelection = .movie
@@ -140,7 +141,7 @@ struct MediaHomeView: View {
                 case .imageGen:
                     ImageGenView(config: config, sources: SourcePresets.defaultSources(config: config))
                 case .settings:
-                    ConfigurationCenterView(config: $config)
+                    ConfigurationCenterView(config: $config, sourceManager: sourceManager)
                 }
             }
             .padding(16)
@@ -751,11 +752,14 @@ struct EditableAppConfig {
 
 struct ConfigurationCenterView: View {
     @Binding var config: AppConfig
+    @ObservedObject var sourceManager: SourceManager
     @State private var draft: EditableAppConfig
     @State private var saveStatus = "Configuration is stored locally only."
+    @State private var selectedTab = 0
 
-    init(config: Binding<AppConfig>) {
+    init(config: Binding<AppConfig>, sourceManager: SourceManager) {
         _config = config
+        self.sourceManager = sourceManager
         _draft = State(initialValue: EditableAppConfig(config: config.wrappedValue))
     }
 
@@ -765,15 +769,37 @@ struct ConfigurationCenterView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Settings")
                         .font(.system(size: 28, weight: .semibold, design: .rounded))
-                    Text("导入源配置后 App 客户端解析播放，不需要后端服务。Advanced 藏着 debug 用的后端地址。")
+                    Text("导入源配置后 App 客户端解析播放，不需要后端服务。")
                         .font(.system(size: 13))
                         .foregroundStyle(AppTheme.secondaryText)
                 }
                 Spacer()
-                Button("Save configuration") { save() }
-                    .buttonStyle(.borderedProminent)
-                    .tint(AppTheme.purple)
+                HStack(spacing: 8) {
+                    Picker("Tab", selection: $selectedTab) {
+                        Text("Config").tag(0)
+                        Text("Sources").tag(1)
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 160)
+                    Button("Save configuration") { save() }
+                        .buttonStyle(.borderedProminent)
+                        .tint(AppTheme.purple)
+                }
             }
+
+            if selectedTab == 0 {
+                configTabView
+            } else {
+                SourcesSettingsView(sourceManager: sourceManager)
+            }
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(AppTheme.panel, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(AppTheme.hairline))
+    }
+
+    private var configTabView: some View {
 
             HStack(spacing: 10) {
                 SourcePrincipleChip(title: "客户端本地解析", icon: "play.rectangle.on.rectangle")
@@ -921,7 +947,14 @@ struct SecureConfigField: View {
 }
 
 struct SourcesSettingsView: View {
-    let sources: [MediaSourceConfig]
+    @ObservedObject var sourceManager: SourceManager
+    @State private var showingAddSheet = false
+    @State private var newSourceName = ""
+    @State private var newSourceURL = ""
+    @State private var newSourceKind: MediaSourceKind = .iptvM3U
+    @State private var editingSourceID: String? = nil
+    @State private var editName = ""
+    @State private var editURL = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -929,14 +962,16 @@ struct SourcesSettingsView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Sources")
                         .font(.system(size: 28, weight: .semibold, design: .rounded))
-                    Text("Weak backend, strong local app. Keep sources configurable and direct-played locally by default.")
+                    Text("Weak backend, strong local app. Manage and test your sources.")
                         .font(.system(size: 13))
                         .foregroundStyle(AppTheme.secondaryText)
                 }
                 Spacer()
-                Button("Add source") {}
-                    .buttonStyle(.borderedProminent)
-                    .tint(AppTheme.blue)
+                Button { showingAddSheet = true } label: {
+                    Label("Add source", systemImage: "plus")
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(AppTheme.blue)
             }
 
             HStack(spacing: 10) {
@@ -947,14 +982,36 @@ struct SourcesSettingsView: View {
 
             ScrollView {
                 LazyVStack(spacing: 12) {
-                    ForEach(sources.sorted { $0.priority < $1.priority }) { source in
+                    ForEach(sourceManager.sources.sorted { $0.priority < $1.priority }) { source in
                         SourceCard(source: source)
+                            .contextMenu {
+                                Button { sourceManager.toggleSource(id: source.id) } label: {
+                                    Label(source.enabled ? "Disable" : "Enable", systemImage: source.enabled ? "xmark.circle" : "checkmark.circle")
+                                }
+                                Button { startEdit(source: source) } label: {
+                                    Label("Edit", systemImage: "pencil")
+                                }
+                                Button { Task { await sourceManager.testSource(id: source.id) } } label: {
+                                    Label("Test connection", systemImage: "antenna.radiowaves.left.and.right")
+                                }
+                                Divider()
+                                Button(role: .destructive) { sourceManager.removeSource(id: source.id) } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            }
+                    }
+                    if sourceManager.sources.isEmpty {
+                        Text("No sources configured. Click \"Add source\" to get started.")
+                            .font(.system(size: 13))
+                            .foregroundStyle(AppTheme.mutedText)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.vertical, 20)
                     }
                 }
                 .padding(.vertical, 4)
             }
 
-            Text("Secrets stay local. Public examples should never include private playlists, tokens, or VPS-only paths.")
+            Text("Secrets stay local. Sources are stored in app preferences, not in the public repo.")
                 .font(.system(size: 12))
                 .foregroundStyle(AppTheme.mutedText)
                 .padding(.top, 2)
@@ -963,7 +1020,109 @@ struct SourcesSettingsView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(AppTheme.panel, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(AppTheme.hairline))
+        .sheet(isPresented: $showingAddSheet) {
+            addSourceSheet
+        }
+        .sheet(item: $editingSourceID) { id in
+            editSourceSheet(id: id)
+        }
     }
+
+    // MARK: - Add Source Sheet
+
+    private var addSourceSheet: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text("Add Media Source")
+                .font(.system(size: 20, weight: .semibold))
+            Text("Add IPTV playlists, TVBox configs, music backends, or other compatible sources.")
+                .font(.system(size: 13))
+                .foregroundStyle(AppTheme.secondaryText)
+
+            Picker("Source type", selection: $newSourceKind) {
+                Text("IPTV / M3U").tag(MediaSourceKind.iptvM3U)
+                Text("TVBox / VOD").tag(MediaSourceKind.vodTVBox)
+                Text("Movie backend").tag(MediaSourceKind.backendMovie)
+                Text("Music backend").tag(MediaSourceKind.backendMusic)
+                Text("AI image provider").tag(MediaSourceKind.aiImageProvider)
+            }
+            .pickerStyle(.menu)
+
+            ConfigTextField(title: "Name", placeholder: "My IPTV playlist", text: $newSourceName)
+            ConfigTextField(title: "URL", placeholder: "https://example.com/playlist.m3u", text: $newSourceURL)
+
+            HStack {
+                Spacer()
+                Button("Cancel") { showingAddSheet = false }
+                    .buttonStyle(.bordered)
+                Button("Add") {
+                    sourceManager.addSource(kind: newSourceKind, name: newSourceName, baseURLString: newSourceURL)
+                    newSourceName = ""
+                    newSourceURL = ""
+                    newSourceKind = .iptvM3U
+                    showingAddSheet = false
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(AppTheme.purple)
+                .disabled(newSourceName.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+        }
+        .padding(24)
+        .frame(width: 480)
+    }
+
+    // MARK: - Edit Source Sheet
+
+    private func editSourceSheet(id: String) -> some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text("Edit Source")
+                .font(.system(size: 20, weight: .semibold))
+
+            if let source = sourceManager.sources.first(where: { $0.id == id }) {
+                Text(source.kind.displayName)
+                    .font(.system(size: 13))
+                    .foregroundStyle(AppTheme.blue)
+
+                ConfigTextField(title: "Name", placeholder: source.name, text: $editName)
+                    .onAppear { editName = source.name; editURL = source.baseURL?.absoluteString ?? "" }
+                ConfigTextField(title: "URL", placeholder: source.endpointSummary, text: $editURL)
+
+                HStack {
+                    Text("Enabled")
+                    Toggle("", isOn: Binding(
+                        get: { source.enabled },
+                        set: { sourceManager.updateSource(id: id, enabled: $0) }
+                    ))
+                }
+
+                HStack {
+                    Spacer()
+                    Button("Cancel") { editingSourceID = nil }
+                        .buttonStyle(.bordered)
+                    Button("Save") {
+                        sourceManager.updateSource(id: id, name: editName, baseURLString: editURL)
+                        editingSourceID = nil
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(AppTheme.purple)
+                }
+            } else {
+                Text("Source not found.")
+                Button("Close") { editingSourceID = nil }
+            }
+        }
+        .padding(24)
+        .frame(width: 480)
+    }
+
+    private func startEdit(source: MediaSourceConfig) {
+        editName = source.name
+        editURL = source.baseURL?.absoluteString ?? ""
+        editingSourceID = source.id
+    }
+}
+
+extension String: @retroactive Identifiable {
+    public var id: String { self }
 }
 
 struct SourcePrincipleChip: View {

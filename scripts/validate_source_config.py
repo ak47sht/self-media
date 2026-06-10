@@ -353,6 +353,39 @@ def test_favorites_integrated_into_ui() -> None:
     )
 
 
+def test_source_manager_exists() -> None:
+    assert_contains(
+        "Sources/OpenClawMedia/Services/SourceManager.swift",
+        [
+            "class SourceManager",
+            "func addSource",
+            "func removeSource",
+            "func updateSource",
+            "func toggleSource",
+            "func testSource",
+            "SourceTestResult",
+            "func save(",
+            "func load(",
+        ],
+    )
+
+
+def test_source_management_ui_wired() -> None:
+    assert_contains(
+        "Sources/OpenClawMedia/App.swift",
+        [
+            "@StateObject private var sourceManager",
+            "SourceManager()",
+            "SourcesSettingsView(sourceManager:",
+            "sourceManager.toggleSource",
+            "sourceManager.removeSource",
+            "sourceManager.addSource",
+            "Add source",
+            "contextMenu",
+        ],
+    )
+
+
 if __name__ == "__main__":
     tests = [
         test_source_models_exist,
@@ -373,6 +406,8 @@ if __name__ == "__main__":
         test_local_store_exists,
         test_storage_models_exist,
         test_favorites_integrated_into_ui,
+        test_source_manager_exists,
+        test_source_management_ui_wired,
     ]
     for test in tests:
         test()
