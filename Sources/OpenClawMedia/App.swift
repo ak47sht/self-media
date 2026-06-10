@@ -81,6 +81,7 @@ struct MediaHomeView: View {
     @Binding var config: AppConfig
     @StateObject private var api: MediaAPI
     @StateObject private var playback = NativePlaybackManager()
+    @StateObject private var store = LocalStore()
 
     @State private var mode: MediaMode = .iptv
     @State private var sidebarSelection: SidebarSelection = .movie
@@ -130,6 +131,7 @@ struct MediaHomeView: View {
                         lyrics: lyrics,
                         playback: playback,
                         status: status,
+                        store: store,
                         playChannel: playSelectedChannel,
                         playSong: playSelectedSong,
                         copyCurrentURL: copyCurrentURL,
@@ -225,6 +227,7 @@ struct MediaHomeView: View {
         }
         let fallbacks = PlaybackRouteResolver.fallbackRoutes(for: channel, excluding: selectedRoute, allowHTTP: config.allowInsecureLocalhost)
         playback.play(url: resolved.url, title: channel.name, fallbacks: fallbacks)
+        store.addToHistory(id: channel.name, type: .iptvChannel, title: channel.name, subtitle: channel.group, thumbnailURL: channel.logo.isEmpty ? nil : channel.logo, detailPath: nil)
         status = "原生播放：\(channel.name) · \(resolved.reason)"
     }
 
@@ -238,6 +241,7 @@ struct MediaHomeView: View {
                 return
             }
             playback.play(url: url, title: "\(song.name) — \(song.artist)")
+            store.addToHistory(id: song.id, type: .musicSong, title: song.name, subtitle: song.artist, thumbnailURL: song.cover, detailPath: song.source)
             status = "原生播放：\(song.name)"
             Task { await loadLyrics(for: song) }
         } catch {
@@ -1047,6 +1051,7 @@ struct DetailPanel: View {
     let lyrics: LyricsResponse?
     @ObservedObject var playback: NativePlaybackManager
     let status: String
+    @ObservedObject var store: LocalStore
     let playChannel: () async -> Void
     let playSong: () async -> Void
     let copyCurrentURL: () -> Void
@@ -1062,7 +1067,17 @@ struct DetailPanel: View {
                 NativePlayerSurface(player: playback.player, mode: mode, active: playback.nowPlayingURL != nil)
 
                 if mode == .iptv, let channel {
-                    Text(channel.name).font(.system(size: 24, weight: .semibold))
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(channel.name).font(.system(size: 24, weight: .semibold))
+                        Spacer()
+                        Button {
+                            store.toggleFavorite(id: channel.name, type: .iptvChannel, title: channel.name, subtitle: channel.group, thumbnailURL: channel.logo.isEmpty ? nil : channel.logo, detailPath: nil)
+                        } label: {
+                            Image(systemName: store.isFavorite(id: channel.name, type: .iptvChannel) ? "heart.fill" : "heart")
+                                .foregroundStyle(store.isFavorite(id: channel.name, type: .iptvChannel) ? AppTheme.amber : AppTheme.mutedText)
+                        }
+                        .buttonStyle(.plain)
+                    }
                     Text([channel.group, channel.sourceName].filter { !$0.isEmpty }.joined(separator: " · "))
                         .foregroundStyle(AppTheme.secondaryText)
                     BadgeRow(items: [channel.browserPlayable ? "Native playable" : "Limited", "\(channel.routes.count) routes"])
@@ -1078,7 +1093,17 @@ struct DetailPanel: View {
                         openInIINA: openCurrentURLInIINA
                     )
                 } else if mode == .music, let song {
-                    Text(song.name).font(.system(size: 24, weight: .semibold))
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(song.name).font(.system(size: 24, weight: .semibold))
+                        Spacer()
+                        Button {
+                            store.toggleFavorite(id: song.id, type: .musicSong, title: song.name, subtitle: song.artist, thumbnailURL: song.cover, detailPath: song.source)
+                        } label: {
+                            Image(systemName: store.isFavorite(id: song.id, type: .musicSong) ? "heart.fill" : "heart")
+                                .foregroundStyle(store.isFavorite(id: song.id, type: .musicSong) ? AppTheme.amber : AppTheme.mutedText)
+                        }
+                        .buttonStyle(.plain)
+                    }
                     Text(song.artist).foregroundStyle(AppTheme.secondaryText)
                     BadgeRow(items: [song.source, song.duration ?? "unknown"])
                     PlaybackActionRow(

@@ -301,6 +301,58 @@ def test_playback_ui_uses_state() -> None:
     )
 
 
+def test_local_store_exists() -> None:
+    assert_contains(
+        "Sources/OpenClawMedia/Services/LocalStore.swift",
+        [
+            "class LocalStore",
+            "func addFavorite",
+            "func removeFavorite",
+            "func toggleFavorite",
+            "func isFavorite",
+            "func addToHistory",
+            "func recentHistory",
+            "func enqueue",
+            "func dequeue",
+            "func clearQueue",
+            "func clearHistory",
+            "UserDefaults.standard",
+            "JSONEncoder",
+            "JSONDecoder",
+        ],
+    )
+
+
+def test_storage_models_exist() -> None:
+    assert_contains(
+        "Sources/OpenClawMedia/Models/StorageModels.swift",
+        [
+            "struct FavoriteItem",
+            "struct HistoryItem",
+            "struct QueueItem",
+            "enum MediaItemType",
+            "case iptvChannel",
+            "case musicSong",
+            "case vodItem",
+        ],
+    )
+
+
+def test_favorites_integrated_into_ui() -> None:
+    assert_contains(
+        "Sources/OpenClawMedia/App.swift",
+        [
+            "@StateObject private var store = LocalStore()",
+            "store.toggleFavorite",
+            "store.isFavorite",
+            "store.addToHistory",
+            "heart.fill",
+            ".iptvChannel",
+            ".musicSong",
+        ],
+    )
+
+
 if __name__ == "__main__":
     tests = [
         test_source_models_exist,
@@ -318,6 +370,9 @@ if __name__ == "__main__":
         test_file_structure_split,
         test_playback_error_handling_exists,
         test_playback_ui_uses_state,
+        test_local_store_exists,
+        test_storage_models_exist,
+        test_favorites_integrated_into_ui,
     ]
     for test in tests:
         test()
