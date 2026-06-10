@@ -1026,6 +1026,8 @@ struct SourceCard: View {
         case .aiImageProvider: return "sparkles"
         case .openlist: return "externaldrive.connected.to.line.below"
         case .customParser: return "curlybraces"
+        case .vodTVBox: return "play.rectangle"
+        case .musicBuiltin: return "music.quarternote.3"
         }
     }
 }

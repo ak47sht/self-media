@@ -21,7 +21,7 @@ struct M3UPlaylistParser {
         var result: [IPTVChannel] = []
         var pendingName = "Channel"
         var pendingGroup = "Imported"
-        var pendingLogo: String?
+        var pendingLogo = ""
         var index = 0
 
         for rawLine in text.components(separatedBy: .newlines) {
@@ -30,30 +30,38 @@ struct M3UPlaylistParser {
             if line.hasPrefix("#EXTINF") {
                 pendingName = parseTitle(line) ?? "Channel"
                 pendingGroup = parseAttribute("group-title", from: line) ?? parseAttribute("group", from: line) ?? "Imported"
-                pendingLogo = parseAttribute("tvg-logo", from: line)
+                pendingLogo = parseAttribute("tvg-logo", from: line) ?? ""
                 continue
             }
             if line.hasPrefix("#") { continue }
             guard let url = URL(string: line), let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme) else { continue }
+            let urlString = url.absoluteString
+            let isHTTPS = scheme == "https"
+            let isM3U8 = url.pathExtension.lowercased() == "m3u8"
+            let browsable = isM3U8 || isHTTPS
             let route = IPTVRoute(
-                label: scheme == "https" ? "HTTPS" : "HTTP",
-                url: url,
+                url: urlString,
+                playURL: urlString,
                 sourceName: sourceName,
-                browserPlayable: url.pathExtension.lowercased() == "m3u8" || scheme == "https"
+                group: pendingGroup,
+                label: isHTTPS ? "HTTPS" : "HTTP",
+                browserPlayable: browsable
             )
             result.append(IPTVChannel(
-                id: "m3u-\(sourceName)-\(index)-\(pendingName)".stableID,
                 name: pendingName,
                 group: pendingGroup,
-                logoURL: pendingLogo.flatMap(URL.init(string:)),
+                logo: pendingLogo,
                 sourceName: sourceName,
-                browserPlayable: route.browserPlayable,
-                routes: [route]
+                url: urlString,
+                playURL: urlString,
+                browserPlayable: browsable,
+                routes: [route],
+                detailPath: ""
             ))
             index += 1
             pendingName = "Channel"
             pendingGroup = "Imported"
-            pendingLogo = nil
+            pendingLogo = ""
         }
         return result
     }
@@ -129,12 +137,5 @@ struct TVBoxConfigParser {
             i += 1
         }
         return Data(output.utf8)
-    }
-}
-
-private extension String {
-    var stableID: String {
-        let scalars = unicodeScalars.map { String(format: "%04x", $0.value) }.joined()
-        return String(scalars.prefix(64))
     }
 }
