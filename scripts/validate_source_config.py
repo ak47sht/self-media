@@ -186,6 +186,79 @@ def test_client_side_source_parsing_is_primary() -> None:
     )
 
 
+def test_vod_models_exist() -> None:
+    assert_contains(
+        "Sources/OpenClawMedia/Models/VODModels.swift",
+        [
+            "struct VODSearchItem",
+            "vodID",
+            "vodName",
+            "struct VODDetailItem",
+            "vodPlayFrom",
+            "vodPlayURL",
+            "var episodes: [VODEpisode]",
+            "struct VODEpisode",
+            "struct VODSearchResponse",
+            "struct VODDetailResponse",
+            "struct VODPlayResponse",
+        ],
+    )
+
+
+def test_vod_api_methods_exist() -> None:
+    assert_contains(
+        "Sources/OpenClawMedia/MediaAPI.swift",
+        [
+            "func searchVOD",
+            "func vodDetail",
+            "func vodPlay",
+            "VODSearchResponse",
+            "VODDetailResponse",
+            "VODPlayResponse",
+        ],
+    )
+
+
+def test_vod_ui_exists() -> None:
+    assert_contains(
+        "Sources/OpenClawMedia/Views/VODView.swift",
+        [
+            "struct VODView: View",
+            "func search() async",
+            "func loadDetail",
+            "func playEpisode",
+            "VODResultCard",
+            "ForEach(results)",
+            "episodes",
+            "selectedEpisode",
+            "VODPosterPlaceholder",
+        ],
+    )
+
+
+def test_vod_sidebar_integration() -> None:
+    assert_contains(
+        "Sources/OpenClawMedia/App.swift",
+        [
+            "case vod",
+            "VOD\", subtitle:",
+            "VODView(api: api, playback: playback, sources: vodSources, config: config)",
+        ],
+    )
+
+
+def test_file_structure_split() -> None:
+    # New modular structure should be taking shape
+    assert_contains(
+        "Sources/OpenClawMedia/Models/VODModels.swift",
+        ["CodingKeys", "vod_id", "vod_name"],
+    )
+    assert_contains(
+        "Sources/OpenClawMedia/Views/VODView.swift",
+        ["import SwiftUI", "VODView"],
+    )
+
+
 if __name__ == "__main__":
     tests = [
         test_source_models_exist,
@@ -196,6 +269,11 @@ if __name__ == "__main__":
         test_ai_key_uses_keychain_not_json,
         test_next_ga_completions_exist,
         test_client_side_source_parsing_is_primary,
+        test_vod_models_exist,
+        test_vod_api_methods_exist,
+        test_vod_ui_exists,
+        test_vod_sidebar_integration,
+        test_file_structure_split,
     ]
     for test in tests:
         test()

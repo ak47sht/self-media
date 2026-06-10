@@ -118,6 +118,8 @@ struct MediaHomeView: View {
                         sidebarSelection = .iptv
                         mode = .iptv
                     }
+                case .vod:
+                    VODView(api: api, playback: playback, sources: vodSources, config: config)
                 case .iptv, .music, .queue:
                     MainPanel(mode: $mode, query: $query, channels: channels, songs: songs, selectedChannel: $selectedChannel, selectedSong: $selectedSong, status: status, loadChannels: loadChannels, searchSongs: searchSongs, selectChannel: selectChannel, selectSong: selectSong)
                     DetailPanel(
@@ -280,6 +282,7 @@ enum MediaMode: String, CaseIterable, Identifiable {
 
 enum SidebarSelection: String, CaseIterable, Identifiable {
     case movie = "Movie"
+    case vod = "VOD"
     case iptv = "IPTV"
     case music = "Music"
     case queue = "Queue"
@@ -321,6 +324,9 @@ struct Sidebar: View {
                 SidebarItem(title: "IPTV", subtitle: "频道 / 线路", icon: "play.tv", active: selection == .iptv) {
                     selection = .iptv
                     mode = .iptv
+                }
+                SidebarItem(title: "VOD", subtitle: "影视搜索", icon: "play.rectangle.fill", active: selection == .vod) {
+                    selection = .vod
                 }
                 SidebarItem(title: "Music", subtitle: "搜索 / 播放", icon: "music.note.list", active: selection == .music) {
                     selection = .music

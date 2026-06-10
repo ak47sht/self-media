@@ -61,6 +61,40 @@ final class MediaAPI: ObservableObject {
         return try await post(base: base, path: "/images/generations", body: request, bearerToken: config.aiImageAPIKey)
     }
 
+    // MARK: - VOD (TVBox direct API)
+
+    /// Search a TVBox source directly.
+    func searchVOD(source: VODSource, query: String) async throws -> VODSearchResponse {
+        let items = [URLQueryItem(name: "wd", value: query), URLQueryItem(name: "pg", value: "1")]
+        return try await get(base: source.api, path: "", queryItems: items)
+    }
+
+    /// Fetch detail for a VOD item from a TVBox source.
+    func vodDetail(source: VODSource, id: String) async throws -> VODDetailResponse {
+        let items = [URLQueryItem(name: "ac", value: "detail"), URLQueryItem(name: "ids", value: id)]
+        return try await get(base: source.api, path: "", queryItems: items)
+    }
+
+    /// Resolve a play URL from a TVBox source — some sources may need server parsing.
+    func vodPlay(source: VODSource, flag: String, id: String) async throws -> VODPlayResponse {
+        let items = [URLQueryItem(name: "ac", value: "play"), URLQueryItem(name: "flag", value: flag), URLQueryItem(name: "id", value: id)]
+        let url = try await get(base: source.api, path: "", queryItems: items) as VODPlayResponse
+        return url
+    }
+
+    /// Fetch raw JSON from an arbitrary URL (used for some VOD sources that need two-step resolution).
+    func rawGet(url: URL, queryItems: [URLQueryItem] = []) async throws -> Data {
+        let cleanPath = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)!
+        if !queryItems.isEmpty { components.queryItems = queryItems }
+        guard let resolved = components.url else { throw URLError(.badURL) }
+        let (data, response) = try await session.data(from: resolved)
+        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+            throw URLError(.badServerResponse)
+        }
+        return data
+    }
+
     private func get<T: Decodable>(base: URL, path: String, queryItems: [URLQueryItem]) async throws -> T {
         let cleanPath = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         var components = URLComponents(url: base.appendingPathComponent(cleanPath), resolvingAgainstBaseURL: false)!
