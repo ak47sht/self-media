@@ -803,7 +803,7 @@ struct ConfigurationCenterView: View {
     }
 
     private var configTabView: some View {
-
+        VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
                 SourcePrincipleChip(title: "客户端本地解析", icon: "play.rectangle.on.rectangle")
                 SourcePrincipleChip(title: "Keys stay local", icon: "key.fill")
@@ -866,10 +866,6 @@ struct ConfigurationCenterView: View {
                 .foregroundStyle(saveStatus.contains("Saved") ? AppTheme.green : AppTheme.mutedText)
                 .padding(.top, 2)
         }
-        .padding(20)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(AppTheme.panel, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(AppTheme.hairline))
     }
 
     private func save() {
@@ -1124,7 +1120,7 @@ struct SourcesSettingsView: View {
     }
 }
 
-extension String: @retroactive Identifiable {
+extension String: Identifiable {
     public var id: String { self }
 }
 

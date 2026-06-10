@@ -27,7 +27,7 @@ struct VODSearchItem: Codable, Identifiable, Equatable {
     }
 }
 
-struct VODSearchResponse: Codable, Equatable {
+struct VODSearchResponse: Decodable, Equatable {
     let list: [VODSearchItem]?
     let total: Int?
     let page: Int?

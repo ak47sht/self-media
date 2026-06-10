@@ -20,7 +20,7 @@ func establishMediaKeyboardShortcuts(_ playback: NativePlaybackManager) -> NSObj
             NSApp.keyWindow?.toggleFullScreen(nil)
             return nil
         case "m", "M":
-            playback.player?.isMuted.toggle()
+            playback.player.isMuted.toggle()
             return nil
         default:
             return event
@@ -88,7 +88,7 @@ struct PlaybackControlBar: View {
                     .frame(width: 18)
                 Slider(value: Binding(
                     get: { Double(volume) },
-                    set: { volume = Float($0); playback.player?.volume = volume }
+                    set: { volume = Float($0); playback.player.volume = volume }
                 ), in: 0...1)
                 .tint(AppTheme.purple)
             }
@@ -100,13 +100,13 @@ struct PlaybackControlBar: View {
             updateTime()
         }
         .onAppear {
-            volume = playback.player?.volume ?? 0.5
+            volume = playback.player.volume
             updateTime()
         }
     }
 
     private func updateTime() {
-        guard let player = playback.player else { return }
+        let player = playback.player
         currentTime = CMTimeGetSeconds(player.currentTime())
         if let d = player.currentItem?.duration, d.isNumeric {
             duration = CMTimeGetSeconds(d)
@@ -114,8 +114,8 @@ struct PlaybackControlBar: View {
     }
 
     private func seek(to seconds: Double) {
-        guard let player = playback.player,
-              let d = player.currentItem?.duration, d.isNumeric else { return }
+        let player = playback.player
+        guard let d = player.currentItem?.duration, d.isNumeric else { return }
         let target = min(CMTimeGetSeconds(d), max(0, seconds))
         player.seek(to: CMTime(seconds: target, preferredTimescale: 600))
     }
