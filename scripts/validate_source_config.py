@@ -100,7 +100,7 @@ def test_native_playback_ga_paths_exist() -> None:
     assert_contains(
         "Sources/OpenClawMedia/App.swift",
         [
-            "VideoPlayer(player:",
+            "LegacyAVPlayerView(player:",
             "Play video",
             "Play music",
             "Copy URL",
