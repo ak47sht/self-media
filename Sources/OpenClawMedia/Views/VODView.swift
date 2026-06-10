@@ -266,8 +266,9 @@ struct VODView: View {
         .background(AppTheme.panel.opacity(0.88), in: RoundedRectangle(cornerRadius: DesignTokens.panelRadius, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: DesignTokens.panelRadius, style: .continuous).stroke(AppTheme.hairline))
         .shadow(color: .black.opacity(0.20), radius: 26, y: 16)
-        .fullScreenCover(isPresented: $showingFullScreenPlayer) {
+        .sheet(isPresented: $showingFullScreenPlayer) {
             FullScreenPlayerView(playback: playback, title: playback.nowPlayingTitle.isEmpty ? "VOD player" : playback.nowPlayingTitle, dismiss: { showingFullScreenPlayer = false })
+                .frame(minWidth: 1100, idealWidth: 1280, minHeight: 720, idealHeight: 820)
         }
     }
 

@@ -4,6 +4,7 @@ import AVFoundation
 
 // MARK: - Keyboard shortcuts
 
+@MainActor
 func establishMediaKeyboardShortcuts(_ playback: NativePlaybackManager) -> Any? {
     NSEvent.addLocalMonitorForEvents(matching: .keyDown) { (event: NSEvent) -> NSEvent? in
         guard let window = NSApp.keyWindow,
