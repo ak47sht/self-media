@@ -1,5 +1,8 @@
 name: public-safety-and-build
 
+permissions:
+  contents: write
+
 on:
   push:
     branches: [main]
@@ -20,6 +23,9 @@ jobs:
 
   macos-build:
     runs-on: macos-14
+    env:
+      APP_VERSION: 0.2.1
+      APP_BUILD: 3
     steps:
       - uses: actions/checkout@v4
 
@@ -42,7 +48,7 @@ jobs:
           chmod +x "$MACOS/OpenClawMedia"
           cp config.example.json "$RESOURCES/config.example.json"
 
-          cat > "$CONTENTS/Info.plist" <<'PLIST'
+          cat > "$CONTENTS/Info.plist" <<PLIST
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
@@ -58,9 +64,9 @@ jobs:
             <key>CFBundlePackageType</key>
             <string>APPL</string>
             <key>CFBundleShortVersionString</key>
-            <string>0.2.0</string>
+            <string>${APP_VERSION}</string>
             <key>CFBundleVersion</key>
-            <string>2</string>
+            <string>${APP_BUILD}</string>
             <key>LSMinimumSystemVersion</key>
             <string>13.0</string>
             <key>NSHighResolutionCapable</key>
@@ -96,3 +102,15 @@ jobs:
           name: OpenClaw-Media-macOS-dmg
           path: build/OpenClaw-Media-macOS.dmg
           if-no-files-found: error
+
+      - name: Publish latest release DMG
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          NOTES="Latest unsigned macOS DMG built from ${GITHUB_SHA}. Open the DMG and drag OpenClaw Media to Applications."
+          gh release view latest >/dev/null 2>&1 || gh release create latest --title "OpenClaw Media latest" --notes "$NOTES"
+          gh release edit latest --title "OpenClaw Media latest" --notes "$NOTES" --latest
+          gh release upload latest build/OpenClaw-Media-macOS.dmg --clobber

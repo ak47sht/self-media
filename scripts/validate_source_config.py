@@ -418,6 +418,38 @@ def test_playback_bar_integrated_into_detail_panel() -> None:
     )
 
 
+def test_in_app_update_checker_exists() -> None:
+    assert_contains(
+        "Sources/OpenClawMedia/Services/AppUpdateChecker.swift",
+        [
+            "struct AppUpdateRelease",
+            "AppUpdateChecker",
+            "releases/tags/latest",
+            "browser_download_url",
+            "dmgAsset",
+        ],
+    )
+    assert_contains(
+        "Sources/OpenClawMedia/App.swift",
+        [
+            "App Updates",
+            "Check latest DMG",
+            "Download DMG",
+            "checkForUpdates",
+            "AppUpdateChecker.check",
+        ],
+    )
+    assert_contains(
+        ".github/workflows/public-safety-and-build.yml",
+        [
+            "contents: write",
+            "APP_VERSION: 0.2.1",
+            "Publish latest release DMG",
+            "gh release upload latest build/OpenClaw-Media-macOS.dmg --clobber",
+        ],
+    )
+
+
 if __name__ == "__main__":
     tests = [
         test_source_models_exist,
@@ -442,6 +474,7 @@ if __name__ == "__main__":
         test_source_management_ui_wired,
         test_keyboard_shortcuts_and_playback_bar_exist,
         test_playback_bar_integrated_into_detail_panel,
+        test_in_app_update_checker_exists,
     ]
     for test in tests:
         test()

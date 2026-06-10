@@ -831,6 +831,9 @@ struct ConfigurationCenterView: View {
     @State private var saveStatus = "Configuration is stored locally only."
     @State private var selectedTab = 0
     @State private var musicUnlockCode = ""
+    @State private var updateStatus = "当前版本：\(AppUpdateChecker.currentVersionSummary)"
+    @State private var latestRelease: AppUpdateRelease?
+    @State private var isCheckingUpdate = false
 
     init(config: Binding<AppConfig>, sourceManager: SourceManager) {
         _config = config
@@ -910,6 +913,34 @@ struct ConfigurationCenterView: View {
                         }
                     }
 
+                    ConfigSection(title: "App Updates", subtitle: "从 GitHub Release 下载最新 DMG，减少每次手动找包") {
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack(spacing: 8) {
+                                Image(systemName: latestRelease?.dmgAsset == nil ? "arrow.down.circle" : "checkmark.seal.fill")
+                                    .foregroundStyle(latestRelease?.dmgAsset == nil ? AppTheme.mutedText : AppTheme.green)
+                                Text(updateStatus)
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(latestRelease?.dmgAsset == nil ? AppTheme.mutedText : AppTheme.green)
+                            }
+                            HStack(spacing: 10) {
+                                Button(isCheckingUpdate ? "Checking…" : "Check latest DMG") {
+                                    Task { await checkForUpdates() }
+                                }
+                                .disabled(isCheckingUpdate)
+                                .buttonStyle(.borderedProminent)
+                                .tint(AppTheme.blue)
+
+                                if let release = latestRelease, let asset = release.dmgAsset {
+                                    Button("Download DMG") { NSWorkspace.shared.open(asset.browserDownloadURL) }
+                                    Button("Open release page") { NSWorkspace.shared.open(release.htmlURL) }
+                                }
+                            }
+                            Text("当前未做静默自安装：macOS 安全限制下仍需打开 DMG 后拖到 Applications，但不再需要每次去 Actions 里找 artifact。")
+                                .font(.system(size: 11))
+                                .foregroundStyle(AppTheme.mutedText)
+                        }
+                    }
+
                     Text("AI 生图")
                         .font(.system(size: 18, weight: .bold))
                         .padding(.top, 8)
@@ -944,6 +975,24 @@ struct ConfigurationCenterView: View {
                 .font(.system(size: 12))
                 .foregroundStyle(saveStatus.contains("Saved") ? AppTheme.green : AppTheme.mutedText)
                 .padding(.top, 2)
+        }
+    }
+
+    private func checkForUpdates() async {
+        isCheckingUpdate = true
+        defer { isCheckingUpdate = false }
+        do {
+            let release = try await AppUpdateChecker.check()
+            latestRelease = release
+            if let asset = release.dmgAsset {
+                let sizeMB = asset.size.map { String(format: "%.1f MB", Double($0) / 1_048_576.0) } ?? "size unknown"
+                updateStatus = "Latest \(release.tagName)：\(asset.name) · \(sizeMB)"
+            } else {
+                updateStatus = "Latest \(release.tagName) found, but no DMG asset is attached yet."
+            }
+        } catch {
+            latestRelease = nil
+            updateStatus = "检查更新失败：\(error.localizedDescription)"
         }
     }
 
