@@ -112,7 +112,7 @@ struct MediaHomeView: View {
             RadialGradient(colors: [AppTheme.green.opacity(0.10), .clear], center: .bottomTrailing, startRadius: 80, endRadius: 620)
                 .ignoresSafeArea()
 
-            HStack(spacing: 14) {
+            HStack(spacing: DesignTokens.gap) {
                 Sidebar(selection: $sidebarSelection, mode: $mode, status: status, config: config)
                 switch sidebarSelection {
                 case .movie:
@@ -146,7 +146,7 @@ struct MediaHomeView: View {
                     ConfigurationCenterView(config: $config, sourceManager: sourceManager)
                 }
             }
-            .padding(16)
+        .padding(DesignTokens.windowPadding)
         }
         .frame(minWidth: 1080, minHeight: 680)
         .task {
@@ -470,9 +470,9 @@ struct Sidebar: View {
             .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(AppTheme.hairline))
         }
         .padding(18)
-        .frame(width: 238)
-        .background(AppTheme.sidebar, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(AppTheme.hairline))
+        .frame(width: DesignTokens.sidebarWidth)
+        .background(AppTheme.sidebar, in: RoundedRectangle(cornerRadius: DesignTokens.panelRadius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: DesignTokens.panelRadius, style: .continuous).stroke(AppTheme.hairline))
     }
 }
 
@@ -499,7 +499,7 @@ struct MovieDashboardView: View {
                     Label("Open IPTV", systemImage: "play.tv")
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(AppTheme.purple)
+                .tint(AppTheme.blue)
             }
 
             HStack(spacing: 8) {
@@ -630,7 +630,7 @@ struct ImageGenView: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(AppTheme.purple)
+                .tint(AppTheme.blue)
 
                 Text(generationStatus)
                     .font(.system(size: 12))
@@ -1118,7 +1118,7 @@ struct SourcesSettingsView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Sources")
                         .font(.system(size: 28, weight: .semibold, design: .rounded))
-                    Text("Weak backend, strong local app. Manage and test your sources.")
+                    Text("Source import is primary. Backend settings stay advanced/debug.")
                         .font(.system(size: 13))
                         .foregroundStyle(AppTheme.secondaryText)
                 }
@@ -1134,7 +1134,10 @@ struct SourcesSettingsView: View {
                 SourcePrincipleChip(title: "Direct play locally", icon: "play.rectangle.on.rectangle")
                 SourcePrincipleChip(title: "Backend normalized", icon: "server.rack")
                 SourcePrincipleChip(title: "External player ready", icon: "arrow.up.forward.app")
+                SourcePrincipleChip(title: "Keychain/local only", icon: "key.fill")
             }
+
+            SafetyNotice()
 
             ScrollView {
                 LazyVStack(spacing: 12) {
@@ -1167,7 +1170,7 @@ struct SourcesSettingsView: View {
                 .padding(.vertical, 4)
             }
 
-            Text("Secrets stay local. Sources are stored in app preferences, not in the public repo.")
+            Text("Provider diagnostics are local UI state. Raw keys and private domains are never shown in the public-safe default view.")
                 .font(.system(size: 12))
                 .foregroundStyle(AppTheme.mutedText)
                 .padding(.top, 2)
@@ -1188,11 +1191,7 @@ struct SourcesSettingsView: View {
 
     private var addSourceSheet: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("Add Media Source")
-                .font(.system(size: 20, weight: .semibold))
-            Text("Add IPTV playlists, TVBox configs, music backends, or other compatible sources.")
-                .font(.system(size: 13))
-                .foregroundStyle(AppTheme.secondaryText)
+            SheetHeader(title: "Add Media Source", subtitle: "Add IPTV playlists, TVBox configs, music backends, or provider APIs. Secrets stay local.")
 
             Picker("Source type", selection: $newSourceKind) {
                 Text("IPTV / M3U").tag(MediaSourceKind.iptvM3U)
@@ -1203,6 +1202,12 @@ struct SourcesSettingsView: View {
                 Text("AI image provider").tag(MediaSourceKind.aiImageProvider)
             }
             .pickerStyle(.menu)
+
+            HStack(spacing: 8) {
+                CapabilityBadge(title: "Keychain secret", icon: "key.fill", tint: AppTheme.green)
+                CapabilityBadge(title: "Direct play", icon: "play.rectangle.on.rectangle", tint: AppTheme.blue)
+                CapabilityBadge(title: "Host-only summary", icon: "lock.rectangle", tint: AppTheme.secondaryText)
+            }
 
             ConfigTextField(title: "Name", placeholder: "My IPTV playlist", text: $newSourceName)
             ConfigTextField(title: "URL", placeholder: newSourceKind == .xtreamCodes ? "Provider base URL" : "https://example.com/playlist.m3u", text: $newSourceURL)
@@ -1225,25 +1230,30 @@ struct SourcesSettingsView: View {
                     showingAddSheet = false
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(AppTheme.purple)
+                .tint(AppTheme.blue)
                 .disabled(newSourceName.trimmingCharacters(in: .whitespaces).isEmpty)
             }
         }
         .padding(24)
         .frame(width: 480)
+        .background(AppTheme.panel)
     }
 
     // MARK: - Edit Source Sheet
 
     private func editSourceSheet(id: String) -> some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("Edit Source")
-                .font(.system(size: 20, weight: .semibold))
+            SheetHeader(title: "Edit Source", subtitle: "Adjust local source metadata without exposing raw secrets.")
 
             if let source = sourceManager.sources.first(where: { $0.id == id }) {
                 Text(source.kind.displayName)
                     .font(.system(size: 13))
                     .foregroundStyle(AppTheme.blue)
+
+                HStack(spacing: 8) {
+                    CapabilityBadge(title: source.endpointSummary, icon: "network", tint: AppTheme.secondaryText)
+                    CapabilityBadge(title: source.enabled ? "Enabled" : "Disabled", icon: source.enabled ? "checkmark.seal.fill" : "pause.circle", tint: source.enabled ? AppTheme.green : AppTheme.mutedText)
+                }
 
                 ConfigTextField(title: "Name", placeholder: source.name, text: $editName)
                     .onAppear {
@@ -1275,7 +1285,7 @@ struct SourcesSettingsView: View {
                         editingSourceID = nil
                     }
                     .buttonStyle(.borderedProminent)
-                    .tint(AppTheme.purple)
+                    .tint(AppTheme.blue)
                 }
             } else {
                 Text("Source not found.")
@@ -1284,6 +1294,7 @@ struct SourcesSettingsView: View {
         }
         .padding(24)
         .frame(width: 480)
+        .background(AppTheme.panel)
     }
 
     private func startEdit(source: MediaSourceConfig) {
@@ -1321,41 +1332,40 @@ struct SourceCard: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 14) {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(source.enabled ? AppTheme.green.opacity(0.18) : AppTheme.surface)
-                .frame(width: 46, height: 46)
-                .overlay(Image(systemName: iconName).foregroundStyle(source.enabled ? AppTheme.green : AppTheme.mutedText))
+            VStack(spacing: 8) {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(source.enabled ? AppTheme.green.opacity(0.18) : AppTheme.surface)
+                    .frame(width: 46, height: 46)
+                    .overlay(Image(systemName: iconName).foregroundStyle(source.enabled ? AppTheme.green : AppTheme.mutedText))
+                Text("#\(source.priority)")
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .foregroundStyle(AppTheme.mutedText)
+            }
 
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Text(source.name)
                         .font(.system(size: 15, weight: .semibold))
-                    Text(source.kind.displayName)
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(AppTheme.blue)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(AppTheme.blue.opacity(0.12), in: Capsule())
+                    RouteBadge(title: source.kind.displayName, tint: AppTheme.blue)
                     Spacer()
-                    Text(isTesting ? "Testing" : source.validationStatus.displayName)
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(statusColor)
+                    RouteBadge(title: isTesting ? "Testing" : source.validationStatus.displayName, tint: statusColor)
                 }
 
-                Text(source.endpointSummary)
+                Label(source.endpointSummary, systemImage: "network")
                     .font(.system(size: 12, design: .monospaced))
                     .foregroundStyle(AppTheme.secondaryText)
                     .lineLimit(1)
 
                 HStack(spacing: 7) {
                     ForEach(source.capabilities) { capability in
-                        Text(capability.name)
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(capability.enabled ? AppTheme.primaryText : AppTheme.mutedText)
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 4)
-                            .background(AppTheme.elevated, in: Capsule())
+                        RouteBadge(title: capability.name, tint: capability.enabled ? capabilityColor(capability) : AppTheme.mutedText)
                     }
+                }
+
+                HStack(spacing: 7) {
+                    RouteBadge(title: source.kind == .aiImageProvider ? "Keychain API key" : "Local config", tint: AppTheme.green)
+                    RouteBadge(title: directPlayLabel, tint: AppTheme.blue)
+                    RouteBadge(title: "No media proxy", tint: AppTheme.secondaryText)
                 }
 
                 if let testResult {
@@ -1373,7 +1383,26 @@ struct SourceCard: View {
         }
         .padding(14)
         .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(AppTheme.hairline))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(source.enabled ? AppTheme.green.opacity(0.18) : AppTheme.hairline))
+    }
+
+    private var directPlayLabel: String {
+        switch source.kind {
+        case .backendMusic: return "Direct audio URL"
+        case .aiImageProvider: return "Provider/API request"
+        case .backendMovie, .iptvM3U, .xtreamCodes: return "Direct play"
+        default: return "Local parser"
+        }
+    }
+
+    private func capabilityColor(_ capability: SourceCapability) -> Color {
+        switch capability.type {
+        case .live: return AppTheme.green
+        case .vod: return AppTheme.blue
+        case .music: return AppTheme.green
+        case .image: return AppTheme.amber
+        case .none: return AppTheme.secondaryText
+        }
     }
 
     private var iconName: String {
@@ -1521,6 +1550,10 @@ struct DetailPanel: View {
     let copyCurrentURL: () -> Void
     let openCurrentURLInIINA: () -> Void
 
+    private var nowPlayingHost: String {
+        playback.nowPlayingURL.map { RouteDisplay.hostSummary(for: $0.absoluteString) } ?? "No direct URL resolved"
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text(mode == .iptv ? "Now tuning" : "Now playing")
@@ -1544,7 +1577,11 @@ struct DetailPanel: View {
                     }
                     Text([channel.group, channel.sourceName].filter { !$0.isEmpty }.joined(separator: " · "))
                         .foregroundStyle(AppTheme.secondaryText)
-                    BadgeRow(items: [channel.browserPlayable ? "Native playable" : "Limited", "\(channel.routes.count) routes"])
+                    HStack(spacing: 8) {
+                        CapabilityBadge(title: channel.browserPlayable ? "Native playable" : "External player suggested", icon: channel.browserPlayable ? "play.circle.fill" : "arrow.up.forward.app", tint: channel.browserPlayable ? AppTheme.green : AppTheme.amber)
+                        CapabilityBadge(title: "\(channel.routes.count) routes", icon: "point.3.connected.trianglepath.dotted", tint: AppTheme.blue)
+                    }
+                    RouteEndpointSummary(title: "Best route", value: selectedRoute.map { RouteDisplay.hostSummary(for: $0.playURL.isEmpty ? $0.url : $0.playURL) } ?? RouteDisplay.hostSummary(for: channel.playURL.isEmpty ? channel.url : channel.playURL))
                     RouteList(routes: channel.routes, selectedRoute: $selectedRoute)
                     PlaybackActionRow(
                         primaryTitle: "Play video",
@@ -1569,7 +1606,12 @@ struct DetailPanel: View {
                         .buttonStyle(.plain)
                     }
                     Text(song.artist).foregroundStyle(AppTheme.secondaryText)
-                    BadgeRow(items: [song.source, song.duration ?? "unknown"])
+                    HStack(spacing: 8) {
+                        CapabilityBadge(title: song.source, icon: "server.rack", tint: AppTheme.blue)
+                        CapabilityBadge(title: song.duration ?? "unknown", icon: "clock", tint: AppTheme.secondaryText)
+                        CapabilityBadge(title: "Direct upstream URL", icon: "waveform", tint: AppTheme.green)
+                    }
+                    RouteEndpointSummary(title: "Audio route", value: nowPlayingHost)
                     PlaybackActionRow(
                         primaryTitle: "Play music",
                         isPlaying: playback.isPlaying,
@@ -1591,15 +1633,9 @@ struct DetailPanel: View {
             .background(AppTheme.elevated, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(AppTheme.hairline))
 
-            Text(playback.state.displayText)
-                .font(.system(size: 12))
-                .foregroundStyle(playback.state.isError ? AppTheme.amber : AppTheme.mutedText)
-                .lineLimit(3)
+            StatusMessage(text: playback.state.displayText, isError: playback.state.isError)
 
-            Text("Space play/pause · K stop · F fullscreen · M mute")
-                .font(.system(size: 10))
-                .foregroundStyle(AppTheme.mutedText)
-                .opacity(0.6)
+            KeyboardHint(text: "Space play/pause · K stop · F fullscreen · M mute")
 
             if playback.state.isError {
                 HStack(spacing: 8) {
@@ -1637,24 +1673,32 @@ struct ChannelRow: View {
     var body: some View {
         Button(action: select) {
             HStack(spacing: 12) {
-                Circle().fill(channel.browserPlayable ? AppTheme.green : AppTheme.amber).frame(width: 9, height: 9)
+                ZStack {
+                    Circle().fill(channel.browserPlayable ? AppTheme.green.opacity(0.20) : AppTheme.amber.opacity(0.18))
+                    Circle().fill(channel.browserPlayable ? AppTheme.green : AppTheme.amber).frame(width: 8, height: 8)
+                }
+                .frame(width: 18, height: 18)
                 VStack(alignment: .leading, spacing: 5) {
                     Text(channel.name).font(.system(size: 14, weight: .semibold))
                     Text([channel.group, channel.sourceName].filter { !$0.isEmpty }.joined(separator: " · "))
                         .font(.system(size: 12))
                         .foregroundStyle(AppTheme.secondaryText)
                         .lineLimit(1)
+                    Text(RouteDisplay.hostSummary(for: channel.playURL.isEmpty ? channel.url : channel.playURL))
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(AppTheme.mutedText)
+                        .lineLimit(1)
                 }
                 Spacer()
-                Text("\(channel.routes.count) routes")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(AppTheme.mutedText)
+                RouteBadge(title: RouteDisplay.qualityLabel(for: channel.routes), tint: channel.browserPlayable ? AppTheme.green : AppTheme.amber)
+                RouteBadge(title: "\(channel.routes.count) routes", tint: AppTheme.blue)
                 Image(systemName: "play.fill")
                     .foregroundStyle(active ? AppTheme.green : AppTheme.blue)
             }
             .padding(14)
-            .background(active ? AppTheme.blue.opacity(0.16) : AppTheme.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(active ? AppTheme.blue.opacity(0.42) : AppTheme.hairline))
+            .frame(minHeight: 72)
+            .background(active ? AppTheme.green.opacity(0.11) : AppTheme.surface, in: RoundedRectangle(cornerRadius: DesignTokens.rowRadius, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: DesignTokens.rowRadius, style: .continuous).stroke(active ? AppTheme.green.opacity(0.40) : AppTheme.hairline))
         }
         .buttonStyle(.plain)
     }
@@ -1668,26 +1712,26 @@ struct SongRow: View {
     var body: some View {
         Button(action: select) {
             HStack(spacing: 12) {
-                RoundedRectangle(cornerRadius: 10).fill(AppTheme.elevated).frame(width: 44, height: 44).overlay(Image(systemName: "music.note"))
+                RoundedRectangle(cornerRadius: 10).fill(LinearGradient(colors: [AppTheme.elevated, AppTheme.blue.opacity(0.22)], startPoint: .topLeading, endPoint: .bottomTrailing)).frame(width: 44, height: 44).overlay(Image(systemName: active ? "waveform" : "music.note").foregroundStyle(active ? AppTheme.green : AppTheme.secondaryText))
                 VStack(alignment: .leading, spacing: 5) {
                     Text(song.name).font(.system(size: 14, weight: .semibold))
                     Text([song.artist, song.album ?? ""].filter { !$0.isEmpty }.joined(separator: " · "))
                         .font(.system(size: 12))
                         .foregroundStyle(AppTheme.secondaryText)
                         .lineLimit(1)
+                    Text("Direct upstream playback · lyrics when available")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(AppTheme.mutedText)
                 }
                 Spacer()
-                Text(song.source)
-                    .font(.system(size: 11, weight: .medium))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(AppTheme.green.opacity(0.12), in: Capsule())
-                    .foregroundStyle(AppTheme.green)
+                RouteBadge(title: song.source, tint: AppTheme.blue)
+                if let duration = song.duration { RouteBadge(title: duration, tint: AppTheme.secondaryText) }
                 Image(systemName: "play.fill").foregroundStyle(active ? AppTheme.green : AppTheme.blue)
             }
             .padding(12)
-            .background(active ? AppTheme.green.opacity(0.13) : AppTheme.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(active ? AppTheme.green.opacity(0.36) : AppTheme.hairline))
+            .frame(minHeight: 70)
+            .background(active ? AppTheme.green.opacity(0.13) : AppTheme.surface, in: RoundedRectangle(cornerRadius: DesignTokens.rowRadius, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: DesignTokens.rowRadius, style: .continuous).stroke(active ? AppTheme.green.opacity(0.36) : AppTheme.hairline))
         }
         .buttonStyle(.plain)
     }
@@ -1704,17 +1748,17 @@ struct RouteList: View {
                 Button {
                     selectedRoute = route
                 } label: {
-                    HStack {
+                    HStack(spacing: 10) {
                         VStack(alignment: .leading, spacing: 3) {
                             Text(route.label.isEmpty ? route.sourceName : route.label).lineLimit(1)
-                            Text(route.playURL.isEmpty ? route.url : route.playURL)
+                            Text(RouteDisplay.hostSummary(for: route.playURL.isEmpty ? route.url : route.playURL))
                                 .font(.system(size: 10, design: .monospaced))
                                 .foregroundStyle(AppTheme.mutedText)
                                 .lineLimit(1)
                         }
                         Spacer()
-                        Text(route.browserPlayable ? "Native" : "Try")
-                            .foregroundStyle(route.browserPlayable ? AppTheme.green : AppTheme.amber)
+                        RouteBadge(title: RouteDisplay.protocolLabel(for: route.playURL.isEmpty ? route.url : route.playURL), tint: route.browserPlayable ? AppTheme.green : AppTheme.amber)
+                        RouteBadge(title: route.browserPlayable ? "Native" : "Limited", tint: route.browserPlayable ? AppTheme.green : AppTheme.amber)
                     }
                     .font(.system(size: 12, design: .monospaced))
                     .padding(10)
@@ -1723,6 +1767,156 @@ struct RouteList: View {
                 }
                 .buttonStyle(.plain)
             }
+        }
+    }
+}
+
+enum RouteDisplay {
+    static func hostSummary(for raw: String) -> String {
+        guard let url = URL(string: raw), let host = url.host else {
+            return raw.isEmpty ? "No route URL" : "local or custom route"
+        }
+        let scheme = (url.scheme ?? "stream").uppercased()
+        return "\(scheme) · \(host)"
+    }
+
+    static func protocolLabel(for raw: String) -> String {
+        guard let scheme = URL(string: raw)?.scheme?.lowercased() else { return "Custom" }
+        switch scheme {
+        case "https": return raw.lowercased().contains(".m3u8") ? "HTTPS/HLS" : "HTTPS"
+        case "http": return raw.lowercased().contains(".m3u8") ? "HTTP/HLS" : "HTTP limited"
+        case "rtmp": return "RTMP limited"
+        default: return scheme.uppercased()
+        }
+    }
+
+    static func qualityLabel(for routes: [IPTVRoute]) -> String {
+        if routes.contains(where: { ($0.playURL.isEmpty ? $0.url : $0.playURL).lowercased().contains("m3u8") }) { return "HLS" }
+        if routes.contains(where: { ($0.playURL.isEmpty ? $0.url : $0.playURL).lowercased().hasPrefix("https") }) { return "HTTPS" }
+        return "Limited"
+    }
+}
+
+struct RouteEndpointSummary: View {
+    let title: String
+    let value: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "lock.rectangle")
+                .foregroundStyle(AppTheme.mutedText)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 10, weight: .bold))
+                    .tracking(0.8)
+                    .foregroundStyle(AppTheme.mutedText)
+                Text(value)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(AppTheme.secondaryText)
+                    .lineLimit(1)
+            }
+            Spacer()
+        }
+        .padding(10)
+        .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(AppTheme.hairline))
+    }
+}
+
+struct RouteBadge: View {
+    let title: String
+    let tint: Color
+
+    var body: some View {
+        Text(title)
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(tint)
+            .lineLimit(1)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(tint.opacity(0.10), in: Capsule())
+            .overlay(Capsule().stroke(tint.opacity(0.18)))
+    }
+}
+
+struct CapabilityBadge: View {
+    let title: String
+    let icon: String
+    let tint: Color
+
+    var body: some View {
+        Label(title, systemImage: icon)
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(tint)
+            .lineLimit(1)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background(tint.opacity(0.10), in: Capsule())
+            .overlay(Capsule().stroke(tint.opacity(0.18)))
+    }
+}
+
+struct StatusMessage: View {
+    let text: String
+    let isError: Bool
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: isError ? "exclamationmark.triangle.fill" : "info.circle")
+                .foregroundStyle(isError ? AppTheme.amber : AppTheme.mutedText)
+            Text(text)
+                .font(.system(size: 12))
+                .foregroundStyle(isError ? AppTheme.amber : AppTheme.mutedText)
+                .lineLimit(3)
+            Spacer()
+        }
+        .padding(10)
+        .background((isError ? AppTheme.amber : AppTheme.blue).opacity(0.08), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke((isError ? AppTheme.amber : AppTheme.blue).opacity(0.16)))
+    }
+}
+
+struct KeyboardHint: View {
+    let text: String
+
+    var body: some View {
+        Label(text, systemImage: "keyboard")
+            .font(.system(size: 10, weight: .medium))
+            .foregroundStyle(AppTheme.mutedText)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(AppTheme.surface.opacity(0.70), in: Capsule())
+    }
+}
+
+struct SafetyNotice: View {
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "lock.shield.fill")
+                .foregroundStyle(AppTheme.green)
+            Text("Secrets stay local. API keys are stored in Keychain. Streams direct-play locally by default; the VPS does not proxy media unless explicitly configured.")
+                .font(.system(size: 12))
+                .foregroundStyle(AppTheme.secondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer()
+        }
+        .padding(12)
+        .background(AppTheme.green.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(AppTheme.green.opacity(0.16)))
+    }
+}
+
+struct SheetHeader: View {
+    let title: String
+    let subtitle: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.system(size: 20, weight: .semibold))
+            Text(subtitle)
+                .font(.system(size: 13))
+                .foregroundStyle(AppTheme.secondaryText)
         }
     }
 }
@@ -1900,8 +2094,8 @@ struct SidebarItem: View {
             .foregroundStyle(active ? AppTheme.primaryText : AppTheme.secondaryText)
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
-            .background(active ? AppTheme.purple.opacity(0.20) : .clear, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(active ? AppTheme.purple.opacity(0.32) : .clear))
+            .background(active ? AppTheme.blue.opacity(0.18) : .clear, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(active ? AppTheme.blue.opacity(0.30) : .clear))
         }
         .buttonStyle(.plain)
     }
@@ -2144,4 +2338,12 @@ enum AppTheme {
     static let purple = Color(red: 0.545, green: 0.361, blue: 0.965)
     static let green = Color(red: 0.188, green: 0.820, blue: 0.345)
     static let amber = Color(red: 1.0, green: 0.839, blue: 0.039)
+}
+
+enum DesignTokens {
+    static let windowPadding: CGFloat = 16
+    static let sidebarWidth: CGFloat = 224
+    static let panelRadius: CGFloat = 24
+    static let rowRadius: CGFloat = 14
+    static let gap: CGFloat = 14
 }
