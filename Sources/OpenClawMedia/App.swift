@@ -1050,7 +1050,7 @@ struct ConfigurationCenterView: View {
     @ObservedObject var sourceManager: SourceManager
     @State private var draft: EditableAppConfig
     @State private var saveStatus = "Configuration is stored locally only."
-    @State private var selectedTab = 0
+    @State private var selectedTab = 1
     @State private var musicUnlockCode = ""
     @State private var updateStatus = "当前版本：\(AppUpdateChecker.currentVersionSummary)"
     @State private var latestRelease: AppUpdateRelease?
@@ -1340,7 +1340,7 @@ struct SourcesSettingsView: View {
             SafetyNotice()
 
             ScrollView {
-                LazyVStack(spacing: 12) {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 2), spacing: 12) {
                     ForEach(sourceManager.sources.sorted { $0.priority < $1.priority }) { source in
                         SourceCard(source: source, testResult: sourceManager.testResults[source.id], isTesting: sourceManager.testingSourceID == source.id)
                             .contextMenu {
@@ -1581,9 +1581,11 @@ struct SourceCard: View {
                 }
             }
         }
-        .padding(14)
-        .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(source.enabled ? AppTheme.green.opacity(0.18) : AppTheme.hairline))
+        .padding(16)
+        .frame(minHeight: 190)
+        .background(AppTheme.surface.opacity(0.82), in: RoundedRectangle(cornerRadius: DesignTokens.panelRadius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: DesignTokens.panelRadius, style: .continuous).stroke(source.enabled ? AppTheme.green.opacity(0.22) : AppTheme.hairline))
+        .shadow(color: .black.opacity(0.12), radius: 18, y: 10)
     }
 
     private var directPlayLabel: String {

@@ -40,23 +40,31 @@ struct VODView: View {
     }
 
     var body: some View {
-        HStack(spacing: 14) {
-            // Left: search + results
-            VStack(alignment: .leading, spacing: 14) {
+        HStack(spacing: DesignTokens.gap16) {
+            VStack(alignment: .leading, spacing: DesignTokens.gap16) {
                 header
                 searchBar
+                sourceStatusStrip
                 if isSearching {
-                    ProgressView("Searching…").padding(.vertical, 8)
+                    HStack(spacing: 10) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Searching enabled TVBox / Xtream sources…")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(AppTheme.secondaryText)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(AppTheme.elevated.opacity(0.72), in: RoundedRectangle(cornerRadius: DesignTokens.rowRadius, style: .continuous))
                 }
                 resultsGrid
-                Spacer()
             }
             .padding(18)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(AppTheme.panel, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(AppTheme.hairline))
+            .background(AppTheme.panel, in: RoundedRectangle(cornerRadius: DesignTokens.panelRadius, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: DesignTokens.panelRadius, style: .continuous).stroke(AppTheme.hairline))
+            .shadow(color: .black.opacity(0.18), radius: 24, y: 14)
 
-            // Right: detail panel
             detailPanel
         }
         .sheet(isPresented: $isDetailPresented) {
@@ -69,55 +77,83 @@ struct VODView: View {
     // MARK: - Header
 
     private var header: some View {
-        HStack(alignment: .firstTextBaseline) {
+        HStack(alignment: .center, spacing: 14) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("VOD Search")
-                    .font(.system(size: 28, weight: .semibold, design: .rounded))
-                Text("\(searchableSources.count) searchable sources · \(sources.count) configured VOD entries · TVBox and Xtream direct API")
+                Text("Movie / VOD")
+                    .font(.system(size: 28, weight: .semibold))
+                Text("\(searchableSources.count) searchable sources · \(sources.count) configured VOD entries · client resolves TVBox/Xtream locally; backend is fallback.")
                     .font(.system(size: 13))
                     .foregroundStyle(AppTheme.secondaryText)
+                    .lineLimit(1)
             }
             Spacer()
-            Label("\(results.count) results", systemImage: "rectangle.grid.1x2")
-                .font(.system(size: 12))
-                .foregroundStyle(AppTheme.mutedText)
+            VStack(alignment: .trailing, spacing: 6) {
+                HStack(spacing: 8) {
+                    RouteBadge(title: "\(searchableSources.count) TVBox", tint: AppTheme.blue)
+                    RouteBadge(title: "\(xtreamSources.count) Xtream", tint: AppTheme.green)
+                    RouteBadge(title: "\(results.count) results", tint: AppTheme.secondaryText)
+                }
+                Text(searchStatus)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(searchStatus.lowercased().contains("error") || searchStatus.lowercased().contains("no results") ? AppTheme.amber : AppTheme.mutedText)
+                    .lineLimit(1)
+            }
         }
     }
 
     // MARK: - Search bar
 
     private var searchBar: some View {
-        HStack(spacing: 10) {
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass").foregroundStyle(AppTheme.mutedText)
-                TextField("Movie, series, anime…", text: $query)
-                    .textFieldStyle(.plain)
-                    .onSubmit { Task { await search() } }
-            }
-            .padding(.horizontal, 12)
-            .frame(height: 40)
-            .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 999, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 999, style: .continuous).stroke(AppTheme.hairline))
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                HStack(spacing: 10) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(AppTheme.mutedText)
+                    TextField("Search movies, series, anime…", text: $query)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 15, weight: .medium))
+                        .onSubmit { Task { await search() } }
+                }
+                .padding(.horizontal, 14)
+                .frame(height: 48)
+                .background(AppTheme.elevated.opacity(0.88), in: RoundedRectangle(cornerRadius: 999, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 999, style: .continuous).stroke(AppTheme.hairline))
 
-            Button { Task { await search() } } label: {
-                Image(systemName: "arrow.right")
+                Button { Task { await search() } } label: {
+                    Label("Search", systemImage: "arrow.right")
+                        .font(.system(size: 13, weight: .semibold))
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(AppTheme.blue)
+                .keyboardShortcut(.return, modifiers: [])
+                .disabled(query.trimmingCharacters(in: .whitespaces).isEmpty || isSearching)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(AppTheme.purple)
-            .keyboardShortcut(.return, modifiers: [])
-            .disabled(query.trimmingCharacters(in: .whitespaces).isEmpty || isSearching)
-        }
-        .overlay(alignment: .bottomLeading) {
+
             HStack(spacing: 8) {
                 ForEach(quickTerms, id: \.self) { term in
                     Button { runQuickSearch(term) } label: { Text(term) }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
+                        .buttonStyle(.plain)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(AppTheme.secondaryText)
+                        .padding(.horizontal, 11)
+                        .padding(.vertical, 7)
+                        .background(AppTheme.surface.opacity(0.70), in: Capsule())
+                        .overlay(Capsule().stroke(AppTheme.hairline))
                 }
+                Spacer()
+                RouteBadge(title: "Direct play first", tint: AppTheme.green)
+                RouteBadge(title: "IINA fallback", tint: AppTheme.blue)
             }
-            .offset(y: 38)
         }
-        .padding(.bottom, 38)
+    }
+
+    private var sourceStatusStrip: some View {
+        HStack(spacing: 10) {
+            VODMetricCard(title: "TVBox sites", value: "\(searchableSources.count)", icon: "rectangle.stack.badge.play", tint: AppTheme.blue)
+            VODMetricCard(title: "Xtream", value: "\(xtreamSources.count)", icon: "network", tint: AppTheme.green)
+            VODMetricCard(title: "Configured", value: "\(sources.count + xtreamSources.count)", icon: "externaldrive.connected.to.line.below", tint: AppTheme.secondaryText)
+        }
     }
 
     // MARK: - Results grid
@@ -127,7 +163,7 @@ struct VODView: View {
             if results.isEmpty && !isSearching {
                 emptyState
             } else {
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3), spacing: 10) {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 2), spacing: 12) {
                     ForEach(results) { item in
                         VODResultCard(item: item, activeSource: activeSource) {
                             Task { await loadDetail(for: item) }
@@ -170,9 +206,20 @@ struct VODView: View {
 
     private var detailPanel: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Detail")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(AppTheme.secondaryText)
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Player detail")
+                        .font(.system(size: 15, weight: .semibold))
+                    Text(playback.nowPlayingURL?.host ?? "Select a title")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(AppTheme.mutedText)
+                        .lineLimit(1)
+                }
+                Spacer()
+                Circle()
+                    .fill(playback.isPlaying ? AppTheme.green : AppTheme.mutedText)
+                    .frame(width: 8, height: 8)
+            }
 
             if let detailItem {
                 detailContent(for: detailItem)
@@ -198,11 +245,12 @@ struct VODView: View {
             }
             Spacer()
         }
-        .padding(18)
-        .frame(width: 340)
+        .padding(16)
+        .frame(width: 360)
         .frame(maxHeight: .infinity)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(AppTheme.hairline))
+        .background(AppTheme.panel.opacity(0.88), in: RoundedRectangle(cornerRadius: DesignTokens.panelRadius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: DesignTokens.panelRadius, style: .continuous).stroke(AppTheme.hairline))
+        .shadow(color: .black.opacity(0.20), radius: 26, y: 16)
     }
 
     private func detailContent(for item: VODDetailItem) -> some View {
@@ -551,24 +599,70 @@ struct VODResultCard: View {
 
     var body: some View {
         Button(action: action) {
-            VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 12) {
                 VODPosterPlaceholder(title: item.vodName, remarks: item.vodRemarks)
-                    .frame(height: 130)
-                Text(item.vodName)
-                    .font(.system(size: 13, weight: .semibold))
-                    .lineLimit(2)
-                if let remarks = item.vodRemarks {
-                    Text(remarks)
-                        .font(.system(size: 11))
+                    .frame(width: 92, height: 118)
+                VStack(alignment: .leading, spacing: 9) {
+                    HStack(spacing: 7) {
+                        RouteBadge(title: activeSource?.name ?? "VOD", tint: AppTheme.blue)
+                        if let remarks = item.vodRemarks { RouteBadge(title: remarks, tint: AppTheme.secondaryText) }
+                    }
+                    Text(item.vodName)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(AppTheme.primaryText)
+                        .lineLimit(2)
+                    Text("Open detail · choose episode · direct stream first")
+                        .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(AppTheme.mutedText)
                         .lineLimit(1)
+                    Spacer(minLength: 0)
+                    HStack(spacing: 6) {
+                        Circle().fill(AppTheme.green).frame(width: 6, height: 6)
+                        Text("Playable route check")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(AppTheme.secondaryText)
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(AppTheme.mutedText)
+                    }
                 }
             }
-            .padding(8)
-            .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(AppTheme.hairline))
+            .padding(12)
+            .frame(minHeight: 142)
+            .background(AppTheme.surface.opacity(0.82), in: RoundedRectangle(cornerRadius: DesignTokens.rowRadius, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: DesignTokens.rowRadius, style: .continuous).stroke(AppTheme.hairline))
         }
         .buttonStyle(.plain)
+    }
+}
+
+struct VODMetricCard: View {
+    let title: String
+    let value: String
+    let icon: String
+    let tint: Color
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(width: 30, height: 30)
+                .background(tint.opacity(0.13), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(value)
+                    .font(.system(size: 18, weight: .semibold))
+                Text(title)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(AppTheme.mutedText)
+            }
+            Spacer()
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity)
+        .background(AppTheme.surface.opacity(0.72), in: RoundedRectangle(cornerRadius: DesignTokens.rowRadius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: DesignTokens.rowRadius, style: .continuous).stroke(AppTheme.hairline))
     }
 }
 
