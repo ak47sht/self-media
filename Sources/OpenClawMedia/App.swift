@@ -121,7 +121,7 @@ struct MediaHomeView: View {
                         mode = .iptv
                     }
                 case .vod:
-                    VODView(api: api, playback: playback, store: store, sources: vodSources, config: config)
+                    VODView(api: api, playback: playback, store: store, sources: vodSources, xtreamSources: sourceManager.enabledSources(kind: .xtreamCodes), config: config)
                 case .queue:
                     QueuePanel(store: store, playback: playback, playItem: playQueueItem)
                 case .iptv, .music:
@@ -164,12 +164,27 @@ struct MediaHomeView: View {
             status = "Parsing IPTV channels…"
             var parsed: [IPTVChannel] = []
             if let iptvURL = config.iptvPlaylistURL {
-                let (data, _) = try await URLSession.shared.data(from: iptvURL)
-                guard let text = String(data: data, encoding: .utf8) else {
-                    status = "M3U 文件编码不是 UTF-8"
+                do {
+                    let (data, _) = try await URLSession.shared.data(from: iptvURL)
+                    guard let text = String(data: data, encoding: .utf8) else {
+                        status = "IPTV source could not be parsed. Check that the configured URL returns a UTF-8 M3U playlist."
+                        return
+                    }
+                    parsed = m3uParser.parseChannels(text, sourceName: iptvURL.lastPathComponent)
+                } catch {
+                    status = SourceDiagnostics.parsingFailure(kind: .iptvM3U, error: error)
                     return
                 }
-                parsed = m3uParser.parseChannels(text, sourceName: iptvURL.lastPathComponent)
+            }
+            for source in sourceManager.enabledSources(kind: .xtreamCodes) {
+                do {
+                    let client = XtreamCodesClient(config: source)
+                    let categories = try await client.liveCategories()
+                    let streams = try await client.liveStreams()
+                    parsed.append(contentsOf: try XtreamCodesAdapter.liveChannels(from: streams, categories: categories, source: source))
+                } catch {
+                    status = "Xtream live skipped for \(source.name): \(error.localizedDescription)"
+                }
             }
             if parsed.isEmpty {
                 // Fallback: try backend API if M3U URL not configured or empty
@@ -182,20 +197,26 @@ struct MediaHomeView: View {
             mode = .iptv
             status = "Loaded \(parsed.count) IPTV channels"
         } catch {
-            status = "IPTV 加载失败：\(error.localizedDescription)"
+            status = SourceDiagnostics.parsingFailure(kind: .backendMovie, error: error)
         }
     }
 
     private func loadVODSources() async {
-        guard let feedURL = config.vodConfigURL ?? config.jsSourceImportURL ?? SourcePresets.builtinTVBoxFeed else { return }
+        let xtreamVOD = sourceManager.enabledSources(kind: .xtreamCodes).compactMap { try? XtreamCodesAdapter.vodSource(from: $0) }
+        guard let feedURL = config.vodConfigURL ?? config.jsSourceImportURL ?? SourcePresets.builtinTVBoxFeed else {
+            vodSources = xtreamVOD
+            status = "Loaded \(vodSources.count) VOD sources"
+            return
+        }
         do {
             status = "Parsing VOD sources…"
             let (data, _) = try await URLSession.shared.data(from: feedURL)
             let config = try tvBoxParser.parse(data)
-            vodSources = config.sources.filter { $0.searchable }
+            vodSources = config.sources.filter { $0.searchable } + xtreamVOD
             status = "Loaded \(vodSources.count) VOD sources"
         } catch {
-            status = "VOD 源解析失败：\(error.localizedDescription)"
+            vodSources = xtreamVOD
+            status = xtreamVOD.isEmpty ? SourceDiagnostics.parsingFailure(kind: .vodTVBox, error: error) : "Loaded \(xtreamVOD.count) Xtream VOD sources; TVBox parse failed: \(error.localizedDescription)"
         }
     }
 
@@ -281,7 +302,7 @@ struct MediaHomeView: View {
             status = "原生播放：\(song.name)"
             Task { await loadLyrics(for: song) }
         } catch {
-            status = "音乐播放失败：\(error.localizedDescription)"
+            status = SourceDiagnostics.playbackFailure(kind: .backendMusic, error: error)
         }
     }
 
@@ -1082,10 +1103,14 @@ struct SourcesSettingsView: View {
     @State private var showingAddSheet = false
     @State private var newSourceName = ""
     @State private var newSourceURL = ""
+    @State private var newSourceUsername = ""
+    @State private var newSourcePassword = ""
     @State private var newSourceKind: MediaSourceKind = .iptvM3U
     @State private var editingSourceID: String? = nil
     @State private var editName = ""
     @State private var editURL = ""
+    @State private var editUsername = ""
+    @State private var editPassword = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -1114,7 +1139,7 @@ struct SourcesSettingsView: View {
             ScrollView {
                 LazyVStack(spacing: 12) {
                     ForEach(sourceManager.sources.sorted { $0.priority < $1.priority }) { source in
-                        SourceCard(source: source)
+                        SourceCard(source: source, testResult: sourceManager.testResults[source.id], isTesting: sourceManager.testingSourceID == source.id)
                             .contextMenu {
                                 Button { sourceManager.toggleSource(id: source.id) } label: {
                                     Label(source.enabled ? "Disable" : "Enable", systemImage: source.enabled ? "xmark.circle" : "checkmark.circle")
@@ -1171,6 +1196,7 @@ struct SourcesSettingsView: View {
 
             Picker("Source type", selection: $newSourceKind) {
                 Text("IPTV / M3U").tag(MediaSourceKind.iptvM3U)
+                Text("Xtream Codes").tag(MediaSourceKind.xtreamCodes)
                 Text("TVBox / VOD").tag(MediaSourceKind.vodTVBox)
                 Text("Movie backend").tag(MediaSourceKind.backendMovie)
                 Text("Music backend").tag(MediaSourceKind.backendMusic)
@@ -1179,16 +1205,22 @@ struct SourcesSettingsView: View {
             .pickerStyle(.menu)
 
             ConfigTextField(title: "Name", placeholder: "My IPTV playlist", text: $newSourceName)
-            ConfigTextField(title: "URL", placeholder: "https://example.com/playlist.m3u", text: $newSourceURL)
+            ConfigTextField(title: "URL", placeholder: newSourceKind == .xtreamCodes ? "Provider base URL" : "https://example.com/playlist.m3u", text: $newSourceURL)
+            if newSourceKind == .xtreamCodes {
+                ConfigTextField(title: "Username", placeholder: "Xtream username", text: $newSourceUsername)
+                SecureConfigField(title: "Password", placeholder: "Xtream password", text: $newSourcePassword)
+            }
 
             HStack {
                 Spacer()
                 Button("Cancel") { showingAddSheet = false }
                     .buttonStyle(.bordered)
                 Button("Add") {
-                    sourceManager.addSource(kind: newSourceKind, name: newSourceName, baseURLString: newSourceURL)
+                    sourceManager.addSource(kind: newSourceKind, name: newSourceName, baseURLString: newSourceURL, username: newSourceUsername, password: newSourcePassword)
                     newSourceName = ""
                     newSourceURL = ""
+                    newSourceUsername = ""
+                    newSourcePassword = ""
                     newSourceKind = .iptvM3U
                     showingAddSheet = false
                 }
@@ -1214,8 +1246,17 @@ struct SourcesSettingsView: View {
                     .foregroundStyle(AppTheme.blue)
 
                 ConfigTextField(title: "Name", placeholder: source.name, text: $editName)
-                    .onAppear { editName = source.name; editURL = source.baseURL?.absoluteString ?? "" }
+                    .onAppear {
+                        editName = source.name
+                        editURL = source.baseURL?.absoluteString ?? ""
+                        editUsername = source.username ?? ""
+                        editPassword = source.password ?? ""
+                    }
                 ConfigTextField(title: "URL", placeholder: source.endpointSummary, text: $editURL)
+                if source.kind == .xtreamCodes {
+                    ConfigTextField(title: "Username", placeholder: "Xtream username", text: $editUsername)
+                    SecureConfigField(title: "Password", placeholder: "Xtream password", text: $editPassword)
+                }
 
                 HStack {
                     Text("Enabled")
@@ -1230,7 +1271,7 @@ struct SourcesSettingsView: View {
                     Button("Cancel") { editingSourceID = nil }
                         .buttonStyle(.bordered)
                     Button("Save") {
-                        sourceManager.updateSource(id: id, name: editName, baseURLString: editURL)
+                        sourceManager.updateSource(id: id, name: editName, baseURLString: editURL, username: editUsername, password: editPassword)
                         editingSourceID = nil
                     }
                     .buttonStyle(.borderedProminent)
@@ -1248,6 +1289,8 @@ struct SourcesSettingsView: View {
     private func startEdit(source: MediaSourceConfig) {
         editName = source.name
         editURL = source.baseURL?.absoluteString ?? ""
+        editUsername = source.username ?? ""
+        editPassword = source.password ?? ""
         editingSourceID = source.id
     }
 }
@@ -1273,6 +1316,8 @@ struct SourcePrincipleChip: View {
 
 struct SourceCard: View {
     let source: MediaSourceConfig
+    let testResult: SourceTestResult?
+    let isTesting: Bool
 
     var body: some View {
         HStack(alignment: .top, spacing: 14) {
@@ -1292,9 +1337,9 @@ struct SourceCard: View {
                         .padding(.vertical, 3)
                         .background(AppTheme.blue.opacity(0.12), in: Capsule())
                     Spacer()
-                    Text(source.enabled ? "Enabled" : "Disabled")
+                    Text(isTesting ? "Testing" : source.validationStatus.displayName)
                         .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(source.enabled ? AppTheme.green : AppTheme.mutedText)
+                        .foregroundStyle(statusColor)
                 }
 
                 Text(source.endpointSummary)
@@ -1312,6 +1357,18 @@ struct SourceCard: View {
                             .background(AppTheme.elevated, in: Capsule())
                     }
                 }
+
+                if let testResult {
+                    Text(testResult.message)
+                        .font(.system(size: 11))
+                        .foregroundStyle(testResult.success ? AppTheme.green : AppTheme.amber)
+                        .lineLimit(2)
+                } else if let diagnostic = source.diagnostics.first {
+                    Text(diagnostic.message)
+                        .font(.system(size: 11))
+                        .foregroundStyle(diagnostic.severity == .error ? AppTheme.amber : AppTheme.mutedText)
+                        .lineLimit(2)
+                }
             }
         }
         .padding(14)
@@ -1324,11 +1381,22 @@ struct SourceCard: View {
         case .backendMovie: return "play.tv"
         case .backendMusic: return "music.note.list"
         case .iptvM3U: return "list.bullet.rectangle"
+        case .xtreamCodes: return "network"
         case .aiImageProvider: return "sparkles"
         case .openlist: return "externaldrive.connected.to.line.below"
         case .customParser: return "curlybraces"
         case .vodTVBox: return "play.rectangle"
         case .musicBuiltin: return "music.quarternote.3"
+        }
+    }
+
+    private var statusColor: Color {
+        if isTesting { return AppTheme.blue }
+        switch source.validationStatus {
+        case .ready: return AppTheme.green
+        case .warning: return AppTheme.amber
+        case .unsupported, .failed: return AppTheme.amber
+        case .unknown: return AppTheme.mutedText
         }
     }
 }

@@ -15,13 +15,48 @@ def test_source_models_exist() -> None:
         "Sources/OpenClawMedia/SourceConfig.swift",
         [
             "enum MediaSourceKind",
+            "enum SourceContentCapability",
+            "case live",
+            "case vod",
+            "case music",
+            "enum SourceValidationStatus",
+            "case unsupported",
+            "case failed",
+            "struct SourceDiagnostic",
+            "enum SourceDiagnostics",
+            "static func validate",
             "case backendMovie",
             "case backendMusic",
             "case iptvM3U",
+            "case xtreamCodes",
             "case aiImageProvider",
             "struct MediaSourceConfig",
             "struct SourceCapability",
+            "validationStatus",
+            "diagnostics",
             "defaultSources",
+        ],
+    )
+
+
+def test_source_diagnostics_are_user_facing() -> None:
+    assert_contains(
+        "Sources/OpenClawMedia/SourceConfig.swift",
+        [
+            "OpenList is tracked as a future source type",
+            "Custom parser sources are not executed in this build",
+            "Only TVBox-compatible JSON configs are supported in this build",
+            "Check that the configured URL returns a UTF-8 M3U playlist",
+            "may require parser/sniffer support that is not implemented here",
+        ],
+    )
+    assert_contains(
+        "Sources/OpenClawMedia/Services/SourceManager.swift",
+        [
+            "Source responded with HTTP",
+            "Source test failed:",
+            "updateHealth",
+            "SourceDiagnostics.validate",
         ],
     )
 
@@ -242,7 +277,68 @@ def test_vod_sidebar_integration() -> None:
         [
             "case vod",
             "VOD\", subtitle:",
-            "VODView(api: api, playback: playback, store: store, sources: vodSources, config: config)",
+            "VODView(api: api, playback: playback, store: store, sources: vodSources, xtreamSources: sourceManager.enabledSources(kind: .xtreamCodes), config: config)",
+        ],
+    )
+
+
+def test_xtream_codes_support_exists() -> None:
+    assert_contains(
+        "Sources/OpenClawMedia/Services/XtreamCodesClient.swift",
+        [
+            "struct XtreamCodesClient",
+            "player_api.php",
+            "get_live_categories",
+            "get_live_streams",
+            "get_vod_categories",
+            "get_vod_streams",
+            "get_vod_info",
+            "missingBaseURL",
+            "missingUsername",
+            "missingPassword",
+            "XtreamCodesAdapter",
+            "liveChannels",
+            "vodSource",
+            "detailItem",
+        ],
+    )
+    assert_contains(
+        "Sources/OpenClawMedia/SourceConfig.swift",
+        [
+            "case .xtreamCodes",
+            "SourceCapability(name: \"Live\", enabled: true, type: .live)",
+            "SourceCapability(name: \"VOD\", enabled: true, type: .vod)",
+            "missing-username",
+            "missing-password",
+        ],
+    )
+    assert_contains(
+        "Sources/OpenClawMedia/Services/SourceManager.swift",
+        [
+            "username:",
+            "password:",
+            "XtreamCodesClient(config: source).playerAPIURL",
+        ],
+    )
+    assert_contains(
+        "Sources/OpenClawMedia/App.swift",
+        [
+            "Text(\"Xtream Codes\").tag(MediaSourceKind.xtreamCodes)",
+            "sourceManager.enabledSources(kind: .xtreamCodes)",
+            "newSourceUsername",
+            "newSourcePassword",
+            "editUsername",
+            "editPassword",
+        ],
+    )
+    assert_contains(
+        "Sources/OpenClawMedia/Views/VODView.swift",
+        [
+            "xtreamSources",
+            "XtreamCodesClient(config: source)",
+            "XtreamCodesAdapter.searchItems",
+            "XtreamCodesAdapter.detailItem",
+            "XtreamCodesAdapter.directPlayResponse",
         ],
     )
 
@@ -382,6 +478,8 @@ def test_source_management_ui_wired() -> None:
             "sourceManager.addSource",
             "Add source",
             "contextMenu",
+            "source.validationStatus.displayName",
+            "source.diagnostics.first",
         ],
     )
 
@@ -453,6 +551,7 @@ def test_in_app_update_checker_exists() -> None:
 if __name__ == "__main__":
     tests = [
         test_source_models_exist,
+        test_source_diagnostics_are_user_facing,
         test_settings_ui_exposes_sources,
         test_docs_are_linked,
         test_in_app_configuration_is_editable_and_persisted,
@@ -464,6 +563,7 @@ if __name__ == "__main__":
         test_vod_api_methods_exist,
         test_vod_ui_exists,
         test_vod_sidebar_integration,
+        test_xtream_codes_support_exists,
         test_file_structure_split,
         test_playback_error_handling_exists,
         test_playback_ui_uses_state,

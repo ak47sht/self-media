@@ -29,12 +29,14 @@ final class SourceManager: ObservableObject {
                 sources[index].name = preset.name
                 sources[index].baseURL = preset.baseURL
                 sources[index].capabilities = preset.capabilities
+                refreshDiagnostics(for: index)
                 if preset.id == "builtin-music-unlocked" {
                     sources[index].enabled = preset.enabled
+                    refreshDiagnostics(for: index)
                 }
                 changed = true
             } else {
-                sources.append(preset)
+                sources.append(sourceWithDiagnostics(preset))
                 changed = true
             }
         }
@@ -52,7 +54,7 @@ final class SourceManager: ObservableObject {
     func load() {
         if let data = defaults.data(forKey: sourceKey),
            let decoded = try? JSONDecoder().decode([MediaSourceConfig].self, from: data) {
-            sources = decoded
+            sources = decoded.map(sourceWithDiagnostics)
         } else {
             sources = []
         }
@@ -66,20 +68,22 @@ final class SourceManager: ObservableObject {
 
     // MARK: - CRUD
 
-    func addSource(kind: MediaSourceKind, name: String, baseURLString: String) {
+    func addSource(kind: MediaSourceKind, name: String, baseURLString: String, username: String? = nil, password: String? = nil) {
         let id = "source-\(UUID().uuidString.prefix(8))"
         let baseURL = URL(string: baseURLString.trimmingCharacters(in: .whitespaces))
-        let source = MediaSourceConfig(
+        let source = sourceWithDiagnostics(MediaSourceConfig(
             id: id,
             name: name,
             kind: kind,
             baseURL: baseURL,
             fileURL: nil,
+            username: cleanOptional(username),
+            password: cleanOptional(password),
             enabled: true,
             priority: (sources.map(\.priority).max() ?? 0) + 10,
             tags: [],
             capabilities: defaultCapabilities(for: kind)
-        )
+        ))
         sources.append(source)
         save()
     }
@@ -90,20 +94,23 @@ final class SourceManager: ObservableObject {
         save()
     }
 
-    func updateSource(id: String, name: String? = nil, baseURLString: String? = nil, enabled: Bool? = nil, priority: Int? = nil) {
+    func updateSource(id: String, name: String? = nil, baseURLString: String? = nil, username: String? = nil, password: String? = nil, enabled: Bool? = nil, priority: Int? = nil) {
         guard let index = sources.firstIndex(where: { $0.id == id }) else { return }
         var src = sources[index]
         if let name { src.name = name }
         if let urlStr = baseURLString { src.baseURL = URL(string: urlStr) }
+        if let username { src.username = cleanOptional(username) }
+        if let password { src.password = cleanOptional(password) }
         if let enabled { src.enabled = enabled }
         if let priority { src.priority = priority }
-        sources[index] = src
+        sources[index] = sourceWithDiagnostics(src)
         save()
     }
 
     func toggleSource(id: String) {
         guard let index = sources.firstIndex(where: { $0.id == id }) else { return }
         sources[index].enabled.toggle()
+        refreshDiagnostics(for: index)
         save()
     }
 
@@ -117,9 +124,35 @@ final class SourceManager: ObservableObject {
     // MARK: - Test
 
     func testSource(id: String) async {
-        guard let source = sources.first(where: { $0.id == id }),
-              let url = source.baseURL else {
-            testResults[id] = .init(success: false, message: "No URL configured")
+        guard let source = sources.first(where: { $0.id == id }) else {
+            testResults[id] = .init(success: false, message: "No source URL is configured yet.")
+            updateHealth(id: id, status: .warning, message: "No source URL is configured yet.")
+            return
+        }
+
+        let url: URL
+        do {
+            if source.kind == .xtreamCodes {
+                url = try XtreamCodesClient(config: source).playerAPIURL(action: nil)
+            } else if let baseURL = source.baseURL {
+                url = baseURL
+            } else if let fileURL = source.fileURL {
+                url = fileURL
+            } else {
+                throw XtreamCodesError.missingBaseURL
+            }
+        } catch {
+            testResults[id] = .init(success: false, message: error.localizedDescription)
+            updateHealth(id: id, status: .warning, message: error.localizedDescription)
+            return
+        }
+
+        let validation = SourceDiagnostics.validate(source)
+        if validation.0 == .unsupported {
+            testResults[id] = .init(success: false, message: validation.1.first?.message ?? "Source type is not supported in this build.")
+            if let message = validation.1.first?.message {
+                updateHealth(id: id, status: .unsupported, message: message)
+            }
             return
         }
 
@@ -134,14 +167,18 @@ final class SourceManager: ObservableObject {
             if let http = response as? HTTPURLResponse {
                 if (200..<400).contains(http.statusCode) {
                     testResults[id] = .init(success: true, message: "OK — \(http.statusCode) in \(elapsedMs)ms")
+                    updateHealth(id: id, status: .ready, message: "Source responded successfully in \(elapsedMs)ms.")
                 } else {
-                    testResults[id] = .init(success: false, message: "HTTP \(http.statusCode)")
+                    testResults[id] = .init(success: false, message: "Source responded with HTTP \(http.statusCode). Check the configured endpoint and source type.")
+                    updateHealth(id: id, status: .failed, message: "Source responded with HTTP \(http.statusCode). Check the configured endpoint and source type.")
                 }
             } else {
                 testResults[id] = .init(success: true, message: "Reachable in \(elapsedMs)ms")
+                updateHealth(id: id, status: .ready, message: "Source is reachable in \(elapsedMs)ms.")
             }
         } catch {
-            testResults[id] = .init(success: false, message: error.localizedDescription)
+            testResults[id] = .init(success: false, message: "Source test failed: \(error.localizedDescription)")
+            updateHealth(id: id, status: .failed, message: "Source test failed: \(error.localizedDescription)")
         }
 
         testingSourceID = nil
@@ -150,51 +187,31 @@ final class SourceManager: ObservableObject {
     // MARK: - Helpers
 
     private func defaultCapabilities(for kind: MediaSourceKind) -> [SourceCapability] {
-        switch kind {
-        case .backendMovie:
-            return [
-                SourceCapability(name: "Search", enabled: false),
-                SourceCapability(name: "Direct play locally", enabled: true),
-                SourceCapability(name: "External player ready", enabled: true),
-            ]
-        case .backendMusic:
-            return [
-                SourceCapability(name: "Search", enabled: true),
-                SourceCapability(name: "Direct play locally", enabled: true),
-                SourceCapability(name: "Lyrics", enabled: true),
-            ]
-        case .iptvM3U:
-            return [
-                SourceCapability(name: "Direct play locally", enabled: true),
-                SourceCapability(name: "External player ready", enabled: true),
-            ]
-        case .vodTVBox:
-            return [
-                SourceCapability(name: "Search", enabled: true),
-                SourceCapability(name: "Detail", enabled: true),
-                SourceCapability(name: "Direct play locally", enabled: true),
-            ]
-        case .aiImageProvider:
-            return [
-                SourceCapability(name: "Provider/API request", enabled: true),
-                SourceCapability(name: "Keychain secret", enabled: true),
-                SourceCapability(name: "Model configurable", enabled: true),
-            ]
-        case .musicBuiltin:
-            return [
-                SourceCapability(name: "Search", enabled: false),
-                SourceCapability(name: "Direct play locally", enabled: true),
-                SourceCapability(name: "Unlock required", enabled: true),
-            ]
-        case .openlist:
-            return [
-                SourceCapability(name: "Local library", enabled: true),
-            ]
-        case .customParser:
-            return [
-                SourceCapability(name: "Custom parser", enabled: false),
-            ]
-        }
+        SourceDiagnostics.defaultCapabilities(for: kind)
+    }
+
+    private func sourceWithDiagnostics(_ source: MediaSourceConfig) -> MediaSourceConfig {
+        var value = source
+        let validation = SourceDiagnostics.validate(value)
+        value.validationStatus = validation.0
+        value.diagnostics = validation.1
+        return value
+    }
+
+    private func refreshDiagnostics(for index: Int) {
+        sources[index] = sourceWithDiagnostics(sources[index])
+    }
+
+    private func updateHealth(id: String, status: SourceValidationStatus, message: String) {
+        guard let index = sources.firstIndex(where: { $0.id == id }) else { return }
+        sources[index].validationStatus = status
+        sources[index].diagnostics = [SourceDiagnostic(id: "connectivity", severity: status == .ready ? .info : .error, message: message)]
+        save()
+    }
+
+    private func cleanOptional(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
 

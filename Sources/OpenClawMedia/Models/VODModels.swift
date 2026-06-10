@@ -133,6 +133,15 @@ struct VODPlayResponse: Codable, Equatable {
     let headers: [String: String]?
     let msg: String?
 
+    init(url: String?, parse: Int?, extra: String?, header: String?, headers: [String: String]?, msg: String?) {
+        self.url = url
+        self.parse = parse
+        self.extra = extra
+        self.header = header
+        self.headers = headers
+        self.msg = msg
+    }
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         url = try container.decodeIfPresent(String.self, forKey: .url)

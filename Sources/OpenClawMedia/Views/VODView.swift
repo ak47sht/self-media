@@ -6,6 +6,7 @@ struct VODView: View {
     @ObservedObject var playback: NativePlaybackManager
     @ObservedObject var store: LocalStore
     let sources: [VODSource]
+    let xtreamSources: [MediaSourceConfig]
     let config: AppConfig
 
     @State private var query = ""
@@ -20,14 +21,16 @@ struct VODView: View {
     @State private var activeSource: VODSource?
     @State private var selectedEpisode: VODEpisode?
     @State private var resolvedRequestsByEpisode: [String: [PlaybackRequest]] = [:]
+    @State private var xtreamSourceByVODID: [String: MediaSourceConfig] = [:]
 
     private let searchableSources: [VODSource]
 
-    init(api: MediaAPI, playback: NativePlaybackManager, store: LocalStore, sources: [VODSource], config: AppConfig) {
+    init(api: MediaAPI, playback: NativePlaybackManager, store: LocalStore, sources: [VODSource], xtreamSources: [MediaSourceConfig] = [], config: AppConfig) {
         self.api = api
         self.playback = playback
         self.store = store
         self.sources = sources
+        self.xtreamSources = xtreamSources
         self.config = config
         self.searchableSources = sources.filter { $0.searchable }
     }
@@ -64,7 +67,7 @@ struct VODView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("VOD Search")
                     .font(.system(size: 28, weight: .semibold, design: .rounded))
-                Text("\(searchableSources.count) searchable sources · TVBox direct API")
+                Text("\(searchableSources.count) searchable sources · TVBox and Xtream direct API")
                     .font(.system(size: 13))
                     .foregroundStyle(AppTheme.secondaryText)
             }
@@ -326,16 +329,31 @@ struct VODView: View {
         isSearching = true
         searchStatus = "Searching…"
         results = []
+        xtreamSourceByVODID = [:]
         var allResults: [VODSearchItem] = []
         var errors: [String] = []
 
-        for source in searchableSources.prefix(5) {
+        for source in searchableSources.filter({ $0.ext != "xtream" }).prefix(5) {
             do {
                 let response = try await api.searchVOD(source: source, query: q)
                 if let list = response.list {
                     allResults.append(contentsOf: list)
                     if allResults.count >= 40 { break }  // Enough results
                 }
+            } catch {
+                errors.append("\(source.name): \(error.localizedDescription)")
+            }
+        }
+
+        for source in xtreamSources {
+            do {
+                let client = XtreamCodesClient(config: source)
+                let categories = try await client.vodCategories()
+                let streams = try await client.vodStreams()
+                let items = XtreamCodesAdapter.searchItems(from: streams, categories: categories, query: q)
+                for item in items { xtreamSourceByVODID[item.vodID] = source }
+                allResults.append(contentsOf: items)
+                if allResults.count >= 60 { break }
             } catch {
                 errors.append("\(source.name): \(error.localizedDescription)")
             }
@@ -357,8 +375,22 @@ struct VODView: View {
         isDetailLoading = true
         detailStatus = "Loading detail…"
 
+        if let xtreamSource = xtreamSourceByVODID[item.vodID] {
+            do {
+                let client = XtreamCodesClient(config: xtreamSource)
+                let info = try await client.vodInfo(streamID: XtreamCodesAdapter.numericID(from: item.vodID))
+                detailItem = try XtreamCodesAdapter.detailItem(from: info, fallback: item, source: xtreamSource)
+                activeSource = searchableSources.first { $0.id == xtreamSource.id }
+                detailStatus = "1 playable item · \(xtreamSource.name)"
+            } catch {
+                detailStatus = "Xtream detail failed: \(error.localizedDescription)"
+            }
+            isDetailLoading = false
+            return
+        }
+
         // Try sources in order until one returns valid detail with episodes
-        for source in searchableSources {
+        for source in searchableSources.filter({ $0.ext != "xtream" }) {
             do {
                 let resp = try await api.vodDetail(source: source, id: item.vodID)
                 if let detail = resp.list?.first, !detail.episodes.isEmpty {
@@ -389,7 +421,12 @@ struct VODView: View {
         detailStatus = "Resolving stream URL…"
 
         do {
-            let playResp = try await api.vodPlay(source: source, flag: ep.flag, id: ep.url)
+            let playResp: VODPlayResponse
+            if source.ext == "xtream" {
+                playResp = XtreamCodesAdapter.directPlayResponse(for: ep)
+            } else {
+                playResp = try await api.vodPlay(source: source, flag: ep.flag, id: ep.url)
+            }
             let candidates = VODPlaybackResolver.resolve(response: playResp, source: source, episode: ep)
             resolvedRequestsByEpisode[ep.id] = candidates
             if let primary = candidates.first {
@@ -401,7 +438,7 @@ struct VODView: View {
                 detailStatus = VODPlaybackResolver.userMessage(for: playResp, candidates: candidates)
             }
         } catch {
-            detailStatus = "Play failed: \(error.localizedDescription)"
+            detailStatus = SourceDiagnostics.playbackFailure(kind: .vodTVBox, error: error)
         }
     }
 
