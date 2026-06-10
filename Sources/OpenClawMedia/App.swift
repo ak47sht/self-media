@@ -108,12 +108,12 @@ struct MediaHomeView: View {
     var body: some View {
         ZStack {
             AppTheme.background.ignoresSafeArea()
-            RadialGradient(colors: [AppTheme.blue.opacity(0.18), .clear], center: .topLeading, startRadius: 80, endRadius: 700)
+            RadialGradient(colors: [AppTheme.blue.opacity(0.11), .clear], center: .topTrailing, startRadius: 120, endRadius: 760)
                 .ignoresSafeArea()
-            RadialGradient(colors: [AppTheme.green.opacity(0.10), .clear], center: .bottomTrailing, startRadius: 80, endRadius: 620)
+            RadialGradient(colors: [AppTheme.playerGlow.opacity(0.16), .clear], center: .bottomTrailing, startRadius: 80, endRadius: 560)
                 .ignoresSafeArea()
 
-            HStack(spacing: DesignTokens.gap) {
+            HStack(spacing: DesignTokens.gap16) {
                 Sidebar(selection: $sidebarSelection, mode: $mode, status: status, config: config)
                 switch sidebarSelection {
                 case .movie:
@@ -157,7 +157,7 @@ struct MediaHomeView: View {
             }
         .padding(DesignTokens.windowPadding)
         }
-        .frame(minWidth: 1080, minHeight: 680)
+        .frame(minWidth: 1120, minHeight: 700)
         .task {
             sourceManager.seedDefaultSourcesIfNeeded(config: config)
             if channels.isEmpty { await loadChannels() }
@@ -269,7 +269,8 @@ struct MediaHomeView: View {
 
     private func loadTVBoxSources(from url: URL) async throws -> [VODSource] {
         let (data, _) = try await URLSession.shared.data(from: url)
-        return try tvBoxParser.parse(data).sources.filter { $0.searchable }
+        let parsed = try tvBoxParser.parse(data, sourceURL: url)
+        return parsed.sources.filter { $0.searchable }
     }
 
     private func searchSongs() async {
@@ -517,26 +518,30 @@ struct Sidebar: View {
     let config: AppConfig
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: DesignTokens.gap12) {
             TrafficLights()
-                .padding(.bottom, 2)
+                .padding(.bottom, 4)
 
-            HStack(spacing: 12) {
-                AppIcon(size: 34)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("OpenClaw")
-                        .font(.system(size: 16, weight: .semibold, design: .rounded))
-                    Text("Personal Media Suite")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(AppTheme.secondaryText)
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 12) {
+                    AppIcon(size: 36)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("OpenClaw Media")
+                            .font(.system(size: 15, weight: .semibold))
+                        Text("Personal cockpit")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(AppTheme.secondaryText)
+                    }
+                    Spacer()
                 }
+                QuickSearchRow()
             }
-            .padding(.bottom, 6)
-
-            QuickSearchRow()
+            .padding(12)
+            .background(AppTheme.surface.opacity(0.58), in: RoundedRectangle(cornerRadius: DesignTokens.rowRadius, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: DesignTokens.rowRadius, style: .continuous).stroke(AppTheme.hairline))
 
             VStack(alignment: .leading, spacing: 6) {
-                SidebarSectionTitle("APPS")
+                SidebarSectionTitle("MEDIA")
                 SidebarItem(title: "Movie", subtitle: "影视聚合", icon: "film", active: selection == .movie) {
                     selection = .movie
                 }
@@ -585,13 +590,14 @@ struct Sidebar: View {
             }
             .font(.system(size: 12))
             .padding(14)
-            .background(AppTheme.surface.opacity(0.72), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(AppTheme.hairline))
+            .background(AppTheme.surface.opacity(0.54), in: RoundedRectangle(cornerRadius: DesignTokens.rowRadius, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: DesignTokens.rowRadius, style: .continuous).stroke(AppTheme.hairline))
         }
-        .padding(18)
+        .padding(16)
         .frame(width: DesignTokens.sidebarWidth)
-        .background(AppTheme.sidebar, in: RoundedRectangle(cornerRadius: DesignTokens.panelRadius, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: DesignTokens.panelRadius, style: .continuous).stroke(AppTheme.hairline))
+        .background(AppTheme.sidebar, in: RoundedRectangle(cornerRadius: DesignTokens.sidebarRadius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: DesignTokens.sidebarRadius, style: .continuous).stroke(AppTheme.hairline))
+        .shadow(color: .black.opacity(0.24), radius: 26, y: 16)
     }
 }
 
@@ -876,13 +882,13 @@ struct MainPanel: View {
     private let musicQuickTerms = ["周杰伦", "陈奕迅", "Taylor Swift", "热门"]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: DesignTokens.gap12) {
             HStack(spacing: 12) {
                 Picker("Mode", selection: $mode) {
                     ForEach(MediaMode.allCases) { Text($0.rawValue).tag($0) }
                 }
                 .pickerStyle(.segmented)
-                .frame(width: 190)
+                .frame(width: 176)
 
                 HStack(spacing: 8) {
                     Image(systemName: "magnifyingglass").foregroundStyle(AppTheme.mutedText)
@@ -899,8 +905,8 @@ struct MainPanel: View {
                         }
                 }
                 .padding(.horizontal, 12)
-                .frame(height: 38)
-                .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 999, style: .continuous))
+                .frame(height: 42)
+                .background(AppTheme.elevated.opacity(0.82), in: RoundedRectangle(cornerRadius: 999, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 999, style: .continuous).stroke(AppTheme.hairline))
 
                 Button {
@@ -927,9 +933,10 @@ struct MainPanel: View {
                     }
                 } else {
                     FilterChip(title: "All", active: true)
-                    FilterChip(title: "HTTPS only")
                     FilterChip(title: "CCTV")
                     FilterChip(title: "Sports")
+                    FilterChip(title: "News")
+                    FilterChip(title: "HTTPS only")
                 }
             }
 
@@ -974,8 +981,9 @@ struct MainPanel: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(AppTheme.panel, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(AppTheme.hairline))
+        .background(AppTheme.panel, in: RoundedRectangle(cornerRadius: DesignTokens.panelRadius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: DesignTokens.panelRadius, style: .continuous).stroke(AppTheme.hairline))
+        .shadow(color: .black.opacity(0.18), radius: 24, y: 14)
     }
 }
 
@@ -1748,9 +1756,20 @@ struct DetailPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text(mode == .iptv ? "Now tuning" : "Now playing")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(AppTheme.secondaryText)
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(mode == .iptv ? "Now tuning" : "Now playing")
+                        .font(.system(size: 15, weight: .semibold))
+                    Text(nowPlayingHost)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(AppTheme.mutedText)
+                        .lineLimit(1)
+                }
+                Spacer()
+                Circle()
+                    .fill(playback.isPlaying ? AppTheme.green : AppTheme.mutedText)
+                    .frame(width: 8, height: 8)
+            }
 
             VStack(alignment: .leading, spacing: 12) {
                 NativePlayerSurface(player: playback.player, mode: mode, active: playback.nowPlayingURL != nil)
@@ -1821,9 +1840,10 @@ struct DetailPanel: View {
                     Text(status).foregroundStyle(AppTheme.secondaryText)
                 }
             }
-            .padding(16)
-            .background(AppTheme.elevated, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(AppTheme.hairline))
+            .padding(14)
+            .background(AppTheme.elevated.opacity(0.92), in: RoundedRectangle(cornerRadius: DesignTokens.panelRadius, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: DesignTokens.panelRadius, style: .continuous).stroke(AppTheme.hairline))
+            .shadow(color: playback.nowPlayingURL == nil ? .black.opacity(0.18) : AppTheme.blue.opacity(0.18), radius: 24, y: 12)
 
             StatusMessage(text: playback.state.displayText, isError: playback.state.isError)
 
@@ -1849,11 +1869,12 @@ struct DetailPanel: View {
 
             Spacer()
         }
-        .padding(18)
-        .frame(width: playback.nowPlayingURL == nil ? 330 : 450)
+        .padding(16)
+        .frame(width: playback.nowPlayingURL == nil ? DesignTokens.detailPanelWidth : 440)
         .frame(maxHeight: .infinity)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(AppTheme.hairline))
+        .background(AppTheme.panel.opacity(0.86), in: RoundedRectangle(cornerRadius: DesignTokens.panelRadius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: DesignTokens.panelRadius, style: .continuous).stroke(AppTheme.hairline))
+        .shadow(color: .black.opacity(0.20), radius: 26, y: 16)
     }
 }
 
@@ -1887,10 +1908,11 @@ struct ChannelRow: View {
                 Image(systemName: "play.fill")
                     .foregroundStyle(active ? AppTheme.green : AppTheme.blue)
             }
-            .padding(14)
-            .frame(minHeight: 72)
-            .background(active ? AppTheme.green.opacity(0.11) : AppTheme.surface, in: RoundedRectangle(cornerRadius: DesignTokens.rowRadius, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: DesignTokens.rowRadius, style: .continuous).stroke(active ? AppTheme.green.opacity(0.40) : AppTheme.hairline))
+            .padding(.horizontal, 14)
+            .padding(.vertical, 11)
+            .frame(minHeight: 68)
+            .background(active ? AppTheme.green.opacity(0.10) : AppTheme.surface.opacity(0.82), in: RoundedRectangle(cornerRadius: DesignTokens.rowRadius, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: DesignTokens.rowRadius, style: .continuous).stroke(active ? AppTheme.green.opacity(0.34) : AppTheme.hairline))
         }
         .buttonStyle(.plain)
     }
@@ -1920,10 +1942,11 @@ struct SongRow: View {
                 if let duration = song.duration { RouteBadge(title: duration, tint: AppTheme.secondaryText) }
                 Image(systemName: "play.fill").foregroundStyle(active ? AppTheme.green : AppTheme.blue)
             }
-            .padding(12)
-            .frame(minHeight: 70)
-            .background(active ? AppTheme.green.opacity(0.13) : AppTheme.surface, in: RoundedRectangle(cornerRadius: DesignTokens.rowRadius, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: DesignTokens.rowRadius, style: .continuous).stroke(active ? AppTheme.green.opacity(0.36) : AppTheme.hairline))
+            .padding(.horizontal, 14)
+            .padding(.vertical, 11)
+            .frame(minHeight: 68)
+            .background(active ? AppTheme.green.opacity(0.10) : AppTheme.surface.opacity(0.82), in: RoundedRectangle(cornerRadius: DesignTokens.rowRadius, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: DesignTokens.rowRadius, style: .continuous).stroke(active ? AppTheme.green.opacity(0.34) : AppTheme.hairline))
         }
         .buttonStyle(.plain)
     }
@@ -2590,25 +2613,32 @@ struct AppIcon: View {
 }
 
 enum AppTheme {
-    static let background = Color(red: 0.043, green: 0.051, blue: 0.063)
-    static let panel = Color(red: 0.078, green: 0.091, blue: 0.114).opacity(0.94)
-    static let surface = Color(red: 0.104, green: 0.122, blue: 0.153)
-    static let elevated = Color(red: 0.128, green: 0.148, blue: 0.184)
-    static let primaryText = Color(red: 0.962, green: 0.974, blue: 0.992)
-    static let secondaryText = Color(red: 0.660, green: 0.690, blue: 0.742)
-    static let mutedText = Color(red: 0.410, green: 0.444, blue: 0.502)
+    // Figma v0.2 tokens: dark native cockpit, Apple blue actions, green only for playing/healthy.
+    static let background = Color(red: 0.043, green: 0.051, blue: 0.063) // #0B0D10
+    static let panel = Color(red: 0.078, green: 0.091, blue: 0.114).opacity(0.94) // #14171D
+    static let surface = Color(red: 0.078, green: 0.091, blue: 0.114)
+    static let elevated = Color(red: 0.106, green: 0.122, blue: 0.153) // #1B1F27
+    static let primaryText = Color(red: 0.962, green: 0.974, blue: 0.980) // #F5F7FA
+    static let secondaryText = Color(red: 0.659, green: 0.690, blue: 0.741) // #A8B0BD
+    static let mutedText = Color(red: 0.412, green: 0.443, blue: 0.502) // #697180
     static let hairline = Color.white.opacity(0.08)
-    static let sidebar = Color(red: 0.031, green: 0.031, blue: 0.063).opacity(0.98)
-    static let blue = Color(red: 0.039, green: 0.518, blue: 1.0)
-    static let purple = Color(red: 0.545, green: 0.361, blue: 0.965)
-    static let green = Color(red: 0.188, green: 0.820, blue: 0.345)
-    static let amber = Color(red: 1.0, green: 0.839, blue: 0.039)
+    static let sidebar = Color(red: 0.086, green: 0.094, blue: 0.110).opacity(0.72) // rgba(22,24,28,.72)
+    static let blue = Color(red: 0.039, green: 0.518, blue: 1.0) // #0A84FF
+    static let purple = blue // legacy alias; primary accent stays Apple blue for Figma parity.
+    static let green = Color(red: 0.188, green: 0.820, blue: 0.345) // #30D158
+    static let amber = Color(red: 1.0, green: 0.839, blue: 0.039) // #FFD60A
+    static let playerGlow = Color(red: 0.16, green: 0.34, blue: 0.52)
 }
 
 enum DesignTokens {
     static let windowPadding: CGFloat = 16
-    static let sidebarWidth: CGFloat = 224
+    static let sidebarWidth: CGFloat = 240
+    static let detailPanelWidth: CGFloat = 320
+    static let sidebarRadius: CGFloat = 20
     static let panelRadius: CGFloat = 24
     static let rowRadius: CGFloat = 14
+    static let gap8: CGFloat = 8
+    static let gap12: CGFloat = 12
+    static let gap16: CGFloat = 16
     static let gap: CGFloat = 14
 }

@@ -160,28 +160,78 @@ final class SourceManager: ObservableObject {
         let start = Date()
 
         do {
-            var request = URLRequest(url: url, timeoutInterval: 8)
-            request.httpMethod = "HEAD"
-            let (_, response) = try await URLSession.shared.data(for: request)
-            let elapsedMs = Int(Date().timeIntervalSince(start) * 1000)
-            if let http = response as? HTTPURLResponse {
-                if (200..<400).contains(http.statusCode) {
-                    testResults[id] = .init(success: true, message: "OK — \(http.statusCode) in \(elapsedMs)ms")
-                    updateHealth(id: id, status: .ready, message: "Source responded successfully in \(elapsedMs)ms.")
-                } else {
-                    testResults[id] = .init(success: false, message: "Source responded with HTTP \(http.statusCode). Check the configured endpoint and source type.")
-                    updateHealth(id: id, status: .failed, message: "Source responded with HTTP \(http.statusCode). Check the configured endpoint and source type.")
-                }
-            } else {
-                testResults[id] = .init(success: true, message: "Reachable in \(elapsedMs)ms")
-                updateHealth(id: id, status: .ready, message: "Source is reachable in \(elapsedMs)ms.")
-            }
+            let result = try await probeSource(source: source, url: url, start: start)
+            testResults[id] = result
+            updateHealth(id: id, status: result.success ? .ready : .failed, message: result.message)
         } catch {
             testResults[id] = .init(success: false, message: "Source test failed: \(error.localizedDescription)")
             updateHealth(id: id, status: .failed, message: "Source test failed: \(error.localizedDescription)")
         }
 
         testingSourceID = nil
+    }
+
+    private func probeSource(source: MediaSourceConfig, url: URL, start: Date) async throws -> SourceTestResult {
+        switch source.kind {
+        case .iptvM3U:
+            let (data, response) = try await URLSession.shared.data(from: url)
+            let elapsedMs = Int(Date().timeIntervalSince(start) * 1000)
+            let text = String(data: data.prefix(4096), encoding: .utf8) ?? ""
+            if text.contains("#EXTM3U") || text.contains("#EXTINF") {
+                return .init(success: true, message: "IPTV M3U parsed — playlist markers found in \(elapsedMs)ms.")
+            }
+            return .init(success: false, message: "IPTV probe reached \(httpSummary(response)) but did not find #EXTM3U/#EXTINF markers.")
+        case .vodTVBox:
+            let (data, response) = try await URLSession.shared.data(from: url)
+            let elapsedMs = Int(Date().timeIntervalSince(start) * 1000)
+            let parsed = try TVBoxConfigParser().parse(data, sourceURL: url)
+            if parsed.sources.isEmpty {
+                return .init(success: false, message: "VOD probe reached \(httpSummary(response)) but found no searchable TVBox sites.")
+            }
+            return .init(success: true, message: "VOD TVBox parsed — \(parsed.sources.count) site(s), \(parsed.parsers.count) parser(s) in \(elapsedMs)ms.")
+        case .backendMusic, .musicBuiltin:
+            let response = try await dataForProbe(base: url, path: "/api/search", queryItems: [URLQueryItem(name: "q", value: "test")])
+            return apiProbeResult(response: response, start: start, label: "Music search API")
+        case .backendMovie:
+            let response = try await dataForProbe(base: url, path: "/api/iptv/channels", queryItems: [URLQueryItem(name: "show_limited", value: "1")])
+            return apiProbeResult(response: response, start: start, label: "Movie/IPTV backend API")
+        default:
+            var request = URLRequest(url: url, timeoutInterval: 8)
+            request.httpMethod = "HEAD"
+            let (_, response) = try await URLSession.shared.data(for: request)
+            let elapsedMs = Int(Date().timeIntervalSince(start) * 1000)
+            if let http = response as? HTTPURLResponse {
+                if (200..<400).contains(http.statusCode) {
+                    return .init(success: true, message: "OK — \(http.statusCode) in \(elapsedMs)ms")
+                }
+                return .init(success: false, message: "Source responded with HTTP \(http.statusCode). Check the configured endpoint and source type.")
+            }
+            return .init(success: true, message: "Reachable in \(elapsedMs)ms")
+        }
+    }
+
+    private func dataForProbe(base: URL, path: String, queryItems: [URLQueryItem]) async throws -> (Data, URLResponse) {
+        let cleanPath = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        var components = URLComponents(url: base.appendingPathComponent(cleanPath), resolvingAgainstBaseURL: false)!
+        components.queryItems = queryItems
+        guard let url = components.url else { throw URLError(.badURL) }
+        return try await URLSession.shared.data(from: url)
+    }
+
+    private func apiProbeResult(response: (Data, URLResponse), start: Date, label: String) -> SourceTestResult {
+        let elapsedMs = Int(Date().timeIntervalSince(start) * 1000)
+        if let http = response.1 as? HTTPURLResponse {
+            if (200..<400).contains(http.statusCode), !response.0.isEmpty {
+                return .init(success: true, message: "\(label) responded with HTTP \(http.statusCode) and \(response.0.count) bytes in \(elapsedMs)ms.")
+            }
+            return .init(success: false, message: "\(label) responded with HTTP \(http.statusCode); check endpoint compatibility.")
+        }
+        return .init(success: true, message: "\(label) reachable in \(elapsedMs)ms.")
+    }
+
+    private func httpSummary(_ response: URLResponse) -> String {
+        if let http = response as? HTTPURLResponse { return "HTTP \(http.statusCode)" }
+        return "the endpoint"
     }
 
     // MARK: - Helpers

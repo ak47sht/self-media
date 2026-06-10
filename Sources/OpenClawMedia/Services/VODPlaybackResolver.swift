@@ -108,6 +108,17 @@ enum StreamURLNormalizer {
 }
 
 enum VODPlaybackResolver {
+    static func directResponse(source: VODSource, episode: VODEpisode) -> VODPlayResponse {
+        VODPlayResponse(
+            url: episode.url,
+            parse: StreamURLNormalizer.normalize(episode.url, inheritedHeaders: StreamURLNormalizer.headers(from: source.ext), label: "detail url") == nil ? 1 : 0,
+            extra: nil,
+            header: nil,
+            headers: nil,
+            msg: nil
+        )
+    }
+
     static func resolve(response: VODPlayResponse, source: VODSource, episode: VODEpisode) -> [PlaybackRequest] {
         var inheritedHeaders = response.resolvedHeaders
         if inheritedHeaders.isEmpty {

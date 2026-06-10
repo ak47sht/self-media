@@ -462,13 +462,20 @@ struct VODView: View {
         detailStatus = "Resolving stream URL…"
 
         do {
-            let playResp: VODPlayResponse
-            if source.ext == "xtream" {
-                playResp = XtreamCodesAdapter.directPlayResponse(for: ep)
-            } else {
-                playResp = try await api.vodPlay(source: source, flag: ep.flag, id: ep.url)
+            let directResp = VODPlaybackResolver.directResponse(source: source, episode: ep)
+            var candidates = VODPlaybackResolver.resolve(response: directResp, source: source, episode: ep)
+            var playResp = directResp
+
+            if candidates.isEmpty || !candidates.contains(where: { StreamURLNormalizer.looksDirectlyPlayable($0.url) }) {
+                do {
+                    playResp = source.ext == "xtream" ? XtreamCodesAdapter.directPlayResponse(for: ep) : try await api.vodPlay(source: source, flag: ep.flag, id: ep.url)
+                    candidates = VODPlaybackResolver.resolve(response: playResp, source: source, episode: ep)
+                } catch {
+                    if candidates.isEmpty { throw error }
+                    detailStatus = "Using detail-provided stream; source play endpoint failed."
+                }
             }
-            let candidates = VODPlaybackResolver.resolve(response: playResp, source: source, episode: ep)
+
             resolvedRequestsByEpisode[ep.id] = candidates
             if let primary = candidates.first {
                 playback.play(request: primary, title: "\(detail.vodName) · \(ep.title)", fallbacks: Array(candidates.dropFirst()))
