@@ -1,9 +1,10 @@
 import SwiftUI
+import AppKit
 import AVFoundation
 
 // MARK: - Keyboard shortcuts
 
-func establishMediaKeyboardShortcuts(_ playback: NativePlaybackManager) -> NSObjectProtocol? {
+func establishMediaKeyboardShortcuts(_ playback: NativePlaybackManager) -> Any? {
     NSEvent.addLocalMonitorForEvents(matching: .keyDown) { (event: NSEvent) -> NSEvent? in
         guard let window = NSApp.keyWindow,
               !(window.firstResponder is NSTextView),
