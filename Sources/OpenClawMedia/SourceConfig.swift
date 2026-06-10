@@ -5,6 +5,8 @@ enum MediaSourceKind: String, Codable, CaseIterable, Identifiable {
     case backendMusic
     case iptvM3U
     case aiImageProvider
+    case vodTVBox
+    case musicBuiltin
     case openlist
     case customParser
 
@@ -16,6 +18,8 @@ enum MediaSourceKind: String, Codable, CaseIterable, Identifiable {
         case .backendMusic: return "Music backend"
         case .iptvM3U: return "IPTV / M3U"
         case .aiImageProvider: return "AI image provider"
+        case .vodTVBox: return "TVBox / VOD"
+        case .musicBuiltin: return "Music built-in"
         case .openlist: return "OpenList"
         case .customParser: return "Custom parser"
         }
@@ -47,6 +51,8 @@ struct MediaSourceConfig: Codable, Identifiable, Hashable {
 }
 
 enum SourcePresets {
+    static let builtinTVBoxFeed: URL? = URL(string: "https://raw.githubusercontent.com/FongMi/Release/main/tv/box.conf")
+
     static func defaultSources(config: AppConfig) -> [MediaSourceConfig] {
         [
             MediaSourceConfig(

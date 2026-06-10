@@ -85,6 +85,7 @@ struct MediaHomeView: View {
     @State private var mode: MediaMode = .iptv
     @State private var sidebarSelection: SidebarSelection = .movie
     @State private var channels: [IPTVChannel] = []
+    @State private var vodSources: [VODSource] = []
     @State private var songs: [Song] = []
     @State private var query = ""
     @State private var status = "Ready"
@@ -92,6 +93,9 @@ struct MediaHomeView: View {
     @State private var selectedRoute: IPTVRoute?
     @State private var selectedSong: Song?
     @State private var lyrics: LyricsResponse?
+
+    private let m3uParser = M3UPlaylistParser()
+    private let tvBoxParser = TVBoxConfigParser()
 
     init(config: Binding<AppConfig>) {
         _config = config
@@ -110,7 +114,7 @@ struct MediaHomeView: View {
                 Sidebar(selection: $sidebarSelection, mode: $mode, status: status, config: config)
                 switch sidebarSelection {
                 case .movie:
-                    MovieDashboardView(channels: channels, config: config) {
+                    MovieDashboardView(channels: channels, vodSources: vodSources, config: config) {
                         sidebarSelection = .iptv
                         mode = .iptv
                     }
@@ -140,19 +144,47 @@ struct MediaHomeView: View {
         .frame(minWidth: 1080, minHeight: 680)
         .task {
             if channels.isEmpty { await loadChannels() }
+            if vodSources.isEmpty { await loadVODSources() }
         }
     }
 
     private func loadChannels() async {
         do {
-            status = "Loading IPTV channels…"
-            let response = try await api.iptvChannels(query: query, showLimited: false)
-            channels = response.channels
-            selectedChannel = response.channels.first
+            status = "Parsing IPTV channels…"
+            var parsed: [IPTVChannel] = []
+            if let iptvURL = config.iptvPlaylistURL {
+                let (data, _) = try await URLSession.shared.data(from: iptvURL)
+                guard let text = String(data: data, encoding: .utf8) else {
+                    status = "M3U 文件编码不是 UTF-8"
+                    return
+                }
+                parsed = m3uParser.parseChannels(text, sourceName: iptvURL.lastPathComponent)
+            }
+            if parsed.isEmpty {
+                // Fallback: try backend API if M3U URL not configured or empty
+                status = "Loading IPTV channels from backend…"
+                let response = try await api.iptvChannels(query: query, showLimited: false)
+                parsed = response.channels
+            }
+            channels = parsed
+            selectedChannel = parsed.first
             mode = .iptv
-            status = "Loaded \(response.count) IPTV channels"
+            status = "Loaded \(parsed.count) IPTV channels"
         } catch {
             status = "IPTV 加载失败：\(error.localizedDescription)"
+        }
+    }
+
+    private func loadVODSources() async {
+        guard let feedURL = config.vodConfigURL ?? config.jsSourceImportURL ?? SourcePresets.builtinTVBoxFeed else { return }
+        do {
+            status = "Parsing VOD sources…"
+            let (data, _) = try await URLSession.shared.data(from: feedURL)
+            let config = try tvBoxParser.parse(data)
+            vodSources = config.sources.filter { $0.searchable }
+            status = "Loaded \(vodSources.count) VOD sources"
+        } catch {
+            status = "VOD 源解析失败：\(error.localizedDescription)"
         }
     }
 
@@ -340,6 +372,7 @@ struct Sidebar: View {
 
 struct MovieDashboardView: View {
     let channels: [IPTVChannel]
+    let vodSources: [VODSource]
     let config: AppConfig
     let openIPTV: () -> Void
 
@@ -653,6 +686,9 @@ struct EditableAppConfig {
     var movieBaseURL: String
     var musicBaseURL: String
     var iptvPlaylistURL: String
+    var vodConfigURL: String
+    var jsSourceImportURL: String
+    var musicUnlockCode: String
     var aiImageProviderBaseURL: String
     var aiImageProviderModel: String
     var aiImageAPIKey: String
@@ -665,6 +701,9 @@ struct EditableAppConfig {
         movieBaseURL = config.movieBaseURL.absoluteString
         musicBaseURL = config.musicBaseURL.absoluteString
         iptvPlaylistURL = config.iptvPlaylistURL?.absoluteString ?? ""
+        vodConfigURL = config.vodConfigURL?.absoluteString ?? ""
+        jsSourceImportURL = config.jsSourceImportURL?.absoluteString ?? ""
+        musicUnlockCode = config.musicUnlockCodeHash
         aiImageProviderBaseURL = config.aiImageProviderBaseURL?.absoluteString ?? ""
         aiImageProviderModel = config.aiImageProviderModel
         aiImageAPIKey = config.aiImageAPIKey
@@ -677,12 +716,18 @@ struct EditableAppConfig {
         guard let movie = URL(string: movieBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)),
               let music = URL(string: musicBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)) else { return nil }
         let iptv = iptvPlaylistURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : URL(string: iptvPlaylistURL.trimmingCharacters(in: .whitespacesAndNewlines))
+        let vod = vodConfigURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : URL(string: vodConfigURL.trimmingCharacters(in: .whitespacesAndNewlines))
+        let js = jsSourceImportURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : URL(string: jsSourceImportURL.trimmingCharacters(in: .whitespacesAndNewlines))
         let aiBase = aiImageProviderBaseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : URL(string: aiImageProviderBaseURL.trimmingCharacters(in: .whitespacesAndNewlines))
+        let unlockHash = musicUnlockCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : musicUnlockCode
         return AppConfig(
             appName: appName.isEmpty ? "OpenClaw Media" : appName,
             movieBaseURL: movie,
             musicBaseURL: music,
             iptvPlaylistURL: iptv,
+            vodConfigURL: vod,
+            jsSourceImportURL: js,
+            musicUnlockCodeHash: unlockHash,
             aiImageProviderBaseURL: aiBase,
             aiImageProviderModel: aiImageProviderModel.isEmpty ? "provider-default" : aiImageProviderModel,
             aiImageAPIKey: aiImageAPIKey,
@@ -709,7 +754,7 @@ struct ConfigurationCenterView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Settings")
                         .font(.system(size: 28, weight: .semibold, design: .rounded))
-                    Text("配置视频源、音乐源、IPTV/M3U 和 AI 生图 provider；保存后写入 Application Support。")
+                    Text("导入源配置后 App 客户端解析播放，不需要后端服务。Advanced 藏着 debug 用的后端地址。")
                         .font(.system(size: 13))
                         .foregroundStyle(AppTheme.secondaryText)
                 }
@@ -720,36 +765,58 @@ struct ConfigurationCenterView: View {
             }
 
             HStack(spacing: 10) {
-                SourcePrincipleChip(title: "Direct play locally", icon: "play.rectangle.on.rectangle")
-                SourcePrincipleChip(title: "Backend normalized", icon: "server.rack")
+                SourcePrincipleChip(title: "客户端本地解析", icon: "play.rectangle.on.rectangle")
                 SourcePrincipleChip(title: "Keys stay local", icon: "key.fill")
             }
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    ConfigSection(title: "Video", subtitle: "Movie backend + IPTV playlist") {
-                        ConfigTextField(title: "Movie backend URL", placeholder: "https://domain/tools/movie-lite", text: $draft.movieBaseURL)
-                        ConfigTextField(title: "IPTV / M3U URL", placeholder: "https://domain/playlist.m3u or local-compatible URL", text: $draft.iptvPlaylistURL)
+                    Text("导入源配置")
+                        .font(.system(size: 18, weight: .bold))
+
+                    ConfigSection(title: "IPTV / M3U", subtitle: "App 直接解析 M3U 生成频道列表") {
+                        ConfigTextField(title: "IPTV M3U 播放列表 URL", placeholder: "https://domain/playlist.m3u", text: $draft.iptvPlaylistURL)
                     }
 
-                    ConfigSection(title: "Music", subtitle: "Music search, play-url and lyrics backend") {
-                        ConfigTextField(title: "Music backend URL", placeholder: "https://domain/tools/music-lite", text: $draft.musicBaseURL)
+                    ConfigSection(title: "VOD / TVBox", subtitle: "影视仓站点配置 (key/api JSON)，搜索/详情本地适配") {
+                        ConfigTextField(title: "VOD config URL", placeholder: "tvbox config JSON URL", text: $draft.vodConfigURL)
+                        ConfigTextField(title: "JS 源导入地址", placeholder: "可选自定义 JS 源适配器", text: $draft.jsSourceImportURL)
                     }
 
-                    ConfigSection(title: "AI Image", subtitle: "Client direct provider configuration") {
+                    Text("音乐")
+                        .font(.system(size: 18, weight: .bold))
+                        .padding(.top, 8)
+
+                    ConfigSection(title: "Music built-in", subtitle: "内置音乐源（需解锁码开启）") {
+                        SecureConfigField(title: "Music unlock code", placeholder: "输入解锁码激活内置音乐源", text: $draft.musicUnlockCode)
+                    }
+
+                    Text("AI 生图")
+                        .font(.system(size: 18, weight: .bold))
+                        .padding(.top, 8)
+
+                    ConfigSection(title: "AI Image", subtitle: "客户端直连 AI provider") {
                         ConfigTextField(title: "AI provider base URL", placeholder: "https://api.provider.com/v1", text: $draft.aiImageProviderBaseURL)
                         ConfigTextField(title: "AI provider model", placeholder: "gpt-image-1 / flux / provider model id", text: $draft.aiImageProviderModel)
-                        SecureConfigField(title: "AI provider API key", placeholder: "Stored in local config for now; Keychain next", text: $draft.aiImageAPIKey)
+                        SecureConfigField(title: "AI provider API key", placeholder: "Keychain 存储，不会写进 JSON", text: $draft.aiImageAPIKey)
                     }
 
-                    ConfigSection(title: "Runtime", subtitle: "Compatibility and network behavior") {
-                        ConfigTextField(title: "App name", placeholder: "OpenClaw Media", text: $draft.appName)
-                        ConfigTextField(title: "API timeout seconds", placeholder: "15", text: $draft.apiTimeoutSeconds)
-                        Toggle("Prefer HTTPS", isOn: $draft.preferHTTPS)
-                        Toggle("Allow insecure localhost", isOn: $draft.allowInsecureLocalhost)
+                    DisclosureGroup {
+                        ConfigSection(title: "Advanced backend/debug settings", subtitle: "如果不想用客户端解析，可填自己的后端聚合服务") {
+                            ConfigTextField(title: "Movie backend URL", placeholder: "https://domain/tools/movie-lite", text: $draft.movieBaseURL)
+                            ConfigTextField(title: "Music backend URL", placeholder: "https://domain/tools/music-lite", text: $draft.musicBaseURL)
+                        }
+                        ConfigSection(title: "Runtime", subtitle: "Compatibility and network behavior") {
+                            ConfigTextField(title: "App name", placeholder: "OpenClaw Media", text: $draft.appName)
+                            ConfigTextField(title: "API timeout seconds", placeholder: "15", text: $draft.apiTimeoutSeconds)
+                            Toggle("Prefer HTTPS", isOn: $draft.preferHTTPS)
+                            Toggle("Allow insecure localhost", isOn: $draft.allowInsecureLocalhost)
+                        }
+                    } label: {
+                        Label("Advanced backend/debug settings", systemImage: "gearshape.2")
+                            .font(.system(size: 13, weight: .semibold))
                     }
-
-                    SourcesSettingsView(sources: SourcePresets.defaultSources(config: draft.build() ?? config))
+                    .padding(.top, 12)
                 }
                 .padding(.vertical, 4)
             }

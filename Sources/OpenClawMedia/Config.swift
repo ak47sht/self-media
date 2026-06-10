@@ -6,6 +6,9 @@ struct AppConfig: Codable, Equatable {
     var movieBaseURL: URL
     var musicBaseURL: URL
     var iptvPlaylistURL: URL?
+    var vodConfigURL: URL?
+    var jsSourceImportURL: URL?
+    var musicUnlockCodeHash: String
     var aiImageProviderBaseURL: URL?
     var aiImageProviderModel: String
     var aiImageAPIKey: String
@@ -18,6 +21,9 @@ struct AppConfig: Codable, Equatable {
         case movieBaseURL
         case musicBaseURL
         case iptvPlaylistURL
+        case vodConfigURL
+        case jsSourceImportURL
+        case musicUnlockCodeHash
         case aiImageProviderBaseURL
         case aiImageProviderModel
         case aiImageAPIKey
@@ -31,6 +37,9 @@ struct AppConfig: Codable, Equatable {
         movieBaseURL: URL,
         musicBaseURL: URL,
         iptvPlaylistURL: URL?,
+        vodConfigURL: URL? = nil,
+        jsSourceImportURL: URL? = nil,
+        musicUnlockCodeHash: String = "",
         aiImageProviderBaseURL: URL?,
         aiImageProviderModel: String,
         aiImageAPIKey: String,
@@ -42,6 +51,9 @@ struct AppConfig: Codable, Equatable {
         self.movieBaseURL = movieBaseURL
         self.musicBaseURL = musicBaseURL
         self.iptvPlaylistURL = iptvPlaylistURL
+        self.vodConfigURL = vodConfigURL
+        self.jsSourceImportURL = jsSourceImportURL
+        self.musicUnlockCodeHash = musicUnlockCodeHash
         self.aiImageProviderBaseURL = aiImageProviderBaseURL
         self.aiImageProviderModel = aiImageProviderModel
         self.aiImageAPIKey = aiImageAPIKey
@@ -56,6 +68,9 @@ struct AppConfig: Codable, Equatable {
         movieBaseURL = try container.decode(URL.self, forKey: .movieBaseURL)
         musicBaseURL = try container.decode(URL.self, forKey: .musicBaseURL)
         iptvPlaylistURL = try container.decodeIfPresent(URL.self, forKey: .iptvPlaylistURL)
+        vodConfigURL = try container.decodeIfPresent(URL.self, forKey: .vodConfigURL)
+        jsSourceImportURL = try container.decodeIfPresent(URL.self, forKey: .jsSourceImportURL)
+        musicUnlockCodeHash = try container.decodeIfPresent(String.self, forKey: .musicUnlockCodeHash) ?? ""
         aiImageProviderBaseURL = try container.decodeIfPresent(URL.self, forKey: .aiImageProviderBaseURL)
         aiImageProviderModel = try container.decodeIfPresent(String.self, forKey: .aiImageProviderModel) ?? "provider-default"
         let storedAIImageAPIKey = AIProviderSecretStore.readAPIKey()
@@ -72,6 +87,9 @@ struct AppConfig: Codable, Equatable {
         try container.encode(movieBaseURL, forKey: .movieBaseURL)
         try container.encode(musicBaseURL, forKey: .musicBaseURL)
         try container.encodeIfPresent(iptvPlaylistURL, forKey: .iptvPlaylistURL)
+        try container.encodeIfPresent(vodConfigURL, forKey: .vodConfigURL)
+        try container.encodeIfPresent(jsSourceImportURL, forKey: .jsSourceImportURL)
+        try container.encode(musicUnlockCodeHash, forKey: .musicUnlockCodeHash)
         try container.encodeIfPresent(aiImageProviderBaseURL, forKey: .aiImageProviderBaseURL)
         try container.encode(aiImageProviderModel, forKey: .aiImageProviderModel)
         try container.encode(apiTimeoutSeconds, forKey: .apiTimeoutSeconds)
@@ -84,6 +102,9 @@ struct AppConfig: Codable, Equatable {
         movieBaseURL: URL(string: "https://your-movie-domain.example/tools/movie-lite")!,
         musicBaseURL: URL(string: "https://your-music-domain.example/tools/music-lite")!,
         iptvPlaylistURL: nil,
+        vodConfigURL: nil,
+        jsSourceImportURL: nil,
+        musicUnlockCodeHash: "",
         aiImageProviderBaseURL: URL(string: "https://api.example.com/v1"),
         aiImageProviderModel: "provider-default",
         aiImageAPIKey: "",
@@ -101,6 +122,9 @@ struct AppConfig: Codable, Equatable {
             movieBaseURL.absoluteString,
             musicBaseURL.absoluteString,
             iptvPlaylistURL?.absoluteString ?? "",
+            vodConfigURL?.absoluteString ?? "",
+            jsSourceImportURL?.absoluteString ?? "",
+            musicUnlockCodeHash,
             aiImageProviderBaseURL?.absoluteString ?? "",
             aiImageProviderModel,
             String(apiTimeoutSeconds),

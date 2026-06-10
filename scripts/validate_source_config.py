@@ -75,10 +75,13 @@ def test_in_app_configuration_is_editable_and_persisted() -> None:
             "Save configuration",
             "Movie backend URL",
             "Music backend URL",
-            "IPTV / M3U URL",
+            "IPTV M3U 播放列表 URL",
             "AI provider base URL",
             "AI provider API key",
             "AI provider model",
+            "导入源配置",
+            "VOD config URL",
+            "Music unlock code",
         ],
     )
 
@@ -152,6 +155,37 @@ def test_next_ga_completions_exist() -> None:
     )
 
 
+def test_client_side_source_parsing_is_primary() -> None:
+    assert_contains(
+        "Sources/OpenClawMedia/LocalSourceParsing.swift",
+        [
+            "struct M3UPlaylistParser",
+            "#EXTINF",
+            "parseChannels",
+            "struct TVBoxConfigParser",
+            "sites",
+            "VODSource",
+        ],
+    )
+    assert_contains(
+        "Sources/OpenClawMedia/Config.swift",
+        [
+            "vodConfigURL",
+            "musicUnlockCodeHash",
+            "jsSourceImportURL",
+        ],
+    )
+    assert_contains(
+        "Sources/OpenClawMedia/App.swift",
+        [
+            "loadChannels",
+            "loadVODSources",
+            "Advanced backend/debug settings",
+            "导入源配置",
+        ],
+    )
+
+
 if __name__ == "__main__":
     tests = [
         test_source_models_exist,
@@ -161,6 +195,7 @@ if __name__ == "__main__":
         test_native_playback_ga_paths_exist,
         test_ai_key_uses_keychain_not_json,
         test_next_ga_completions_exist,
+        test_client_side_source_parsing_is_primary,
     ]
     for test in tests:
         test()
