@@ -223,7 +223,8 @@ struct MediaHomeView: View {
             status = "没有可播放的视频 URL"
             return
         }
-        playback.play(url: resolved.url, title: channel.name)
+        let fallbacks = PlaybackRouteResolver.fallbackRoutes(for: channel, excluding: selectedRoute, allowHTTP: config.allowInsecureLocalhost)
+        playback.play(url: resolved.url, title: channel.name, fallbacks: fallbacks)
         status = "原生播放：\(channel.name) · \(resolved.reason)"
     }
 
@@ -1101,10 +1102,23 @@ struct DetailPanel: View {
             .background(AppTheme.elevated, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(AppTheme.hairline))
 
-            Text(playback.playbackStatus == "Idle" ? status : playback.playbackStatus)
+            Text(playback.state.displayText)
                 .font(.system(size: 12))
-                .foregroundStyle(AppTheme.mutedText)
+                .foregroundStyle(playback.state.isError ? AppTheme.amber : AppTheme.mutedText)
                 .lineLimit(3)
+
+            if playback.state.isError {
+                HStack(spacing: 8) {
+                    Button("Try next route") { _ = playback.tryNextFallback() }
+                        .buttonStyle(.borderedProminent)
+                        .tint(AppTheme.amber)
+                        .controlSize(.small)
+                    Button("Copy URL") { copyCurrentURL() }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                }
+                .padding(.top, 4)
+            }
 
             Spacer()
         }

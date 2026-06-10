@@ -259,6 +259,48 @@ def test_file_structure_split() -> None:
     )
 
 
+def test_playback_error_handling_exists() -> None:
+    assert_contains(
+        "Sources/OpenClawMedia/PlaybackSupport.swift",
+        [
+            "enum PlaybackState",
+            "case .error",
+            "case .loading",
+            "case .stalled",
+            "case .completed",
+            "var displayText",
+            "var isError",
+            "var isActive",
+            "func tryNextFallback",
+            "fallbackAttempts",
+            "maxFallbackAttempts",
+            "autoFallbackEnabled",
+            "func fallbackRoutes",
+            "NSKeyValueObservation",
+            "AVPlayerItemFailedToPlayToEndTime",
+            "handlePlaybackError",
+            "handleItemStatus",
+            "observe(item:",
+            "stopObserving",
+        ],
+    )
+
+
+def test_playback_ui_uses_state() -> None:
+    assert_contains(
+        "Sources/OpenClawMedia/App.swift",
+        [
+            "playback.state.displayText",
+            "playback.state.isError",
+            "Try next route",
+            "playback.tryNextFallback",
+            "fallbackRoutes",
+            "fallbacks: fallbacks",
+            "Copy URL",
+        ],
+    )
+
+
 if __name__ == "__main__":
     tests = [
         test_source_models_exist,
@@ -274,6 +316,8 @@ if __name__ == "__main__":
         test_vod_ui_exists,
         test_vod_sidebar_integration,
         test_file_structure_split,
+        test_playback_error_handling_exists,
+        test_playback_ui_uses_state,
     ]
     for test in tests:
         test()
