@@ -8,6 +8,7 @@ struct VODView: View {
     let sources: [VODSource]
     let xtreamSources: [MediaSourceConfig]
     let config: AppConfig
+    @Binding var launchQuery: String?
 
     @State private var query = ""
     @State private var results: [VODSearchItem] = []
@@ -25,13 +26,16 @@ struct VODView: View {
 
     private let searchableSources: [VODSource]
 
-    init(api: MediaAPI, playback: NativePlaybackManager, store: LocalStore, sources: [VODSource], xtreamSources: [MediaSourceConfig] = [], config: AppConfig) {
+    private let quickTerms = ["热门", "长安", "庆余年", "繁花", "流浪地球"]
+
+    init(api: MediaAPI, playback: NativePlaybackManager, store: LocalStore, sources: [VODSource], xtreamSources: [MediaSourceConfig] = [], config: AppConfig, launchQuery: Binding<String?> = .constant(nil)) {
         self.api = api
         self.playback = playback
         self.store = store
         self.sources = sources
         self.xtreamSources = xtreamSources
         self.config = config
+        self._launchQuery = launchQuery
         self.searchableSources = sources.filter { $0.searchable }
     }
 
@@ -58,6 +62,8 @@ struct VODView: View {
         .sheet(isPresented: $isDetailPresented) {
             detailSheet
         }
+        .onAppear { consumeLaunchQueryIfNeeded() }
+        .onChange(of: launchQuery) { _ in consumeLaunchQueryIfNeeded() }
     }
 
     // MARK: - Header
@@ -67,7 +73,7 @@ struct VODView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("VOD Search")
                     .font(.system(size: 28, weight: .semibold, design: .rounded))
-                Text("\(searchableSources.count) searchable sources · TVBox and Xtream direct API")
+                Text("\(searchableSources.count) searchable sources · \(sources.count) configured VOD entries · TVBox and Xtream direct API")
                     .font(.system(size: 13))
                     .foregroundStyle(AppTheme.secondaryText)
             }
@@ -101,6 +107,17 @@ struct VODView: View {
             .keyboardShortcut(.return, modifiers: [])
             .disabled(query.trimmingCharacters(in: .whitespaces).isEmpty || isSearching)
         }
+        .overlay(alignment: .bottomLeading) {
+            HStack(spacing: 8) {
+                ForEach(quickTerms, id: \.self) { term in
+                    Button { runQuickSearch(term) } label: { Text(term) }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                }
+            }
+            .offset(y: 38)
+        }
+        .padding(.bottom, 38)
     }
 
     // MARK: - Results grid
@@ -127,15 +144,24 @@ struct VODView: View {
             Image(systemName: "play.tv")
                 .font(.system(size: 48))
                 .foregroundStyle(AppTheme.mutedText.opacity(0.5))
-            Text("Search for a movie or series")
+            Text(searchableSources.isEmpty ? "No VOD sources are ready" : "Search for a movie or series")
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(AppTheme.mutedText)
-            Text("VOD sources are parsed from your TVBox config. Results come directly from source APIs — no backend proxy needed.")
+            Text(searchableSources.isEmpty ? "Add or enable TVBox/VOD or Xtream sources in Settings. Configured app URLs and enabled Settings sources are parsed when the app loads." : "Use a quick search or type a title. Results come directly from enabled TVBox/Xtream source APIs.")
                 .font(.system(size: 12))
                 .foregroundStyle(AppTheme.mutedText.opacity(0.7))
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 400)
                 .padding(.horizontal)
+            HStack(spacing: 8) {
+                ForEach(quickTerms.prefix(4), id: \.self) { term in
+                    Button { runQuickSearch(term) } label: { Label(term, systemImage: "magnifyingglass") }
+                        .buttonStyle(.borderedProminent)
+                        .tint(AppTheme.purple)
+                        .controlSize(.small)
+                        .disabled(searchableSources.isEmpty)
+                }
+            }
         }
         .frame(maxWidth: .infinity, minHeight: 280)
     }
@@ -326,6 +352,10 @@ struct VODView: View {
     private func search() async {
         let q = query.trimmingCharacters(in: .whitespaces)
         guard !q.isEmpty else { return }
+        guard !searchableSources.isEmpty || !xtreamSources.isEmpty else {
+            searchStatus = "No VOD sources configured. Add TVBox/VOD or Xtream sources in Settings."
+            return
+        }
         isSearching = true
         searchStatus = "Searching…"
         results = []
@@ -365,6 +395,17 @@ struct VODView: View {
         searchStatus = allResults.isEmpty
             ? "No results found. Errors: \(errors.joined(separator: "; "))"
             : "Found \(allResults.count) titles across \(searchableSources.count) sources"
+    }
+
+    private func runQuickSearch(_ term: String) {
+        query = term
+        Task { await search() }
+    }
+
+    private func consumeLaunchQueryIfNeeded() {
+        guard let term = launchQuery?.trimmingCharacters(in: .whitespacesAndNewlines), !term.isEmpty else { return }
+        launchQuery = nil
+        runQuickSearch(term)
     }
 
     private func loadDetail(for item: VODSearchItem) async {

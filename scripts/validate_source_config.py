@@ -277,7 +277,7 @@ def test_vod_sidebar_integration() -> None:
         [
             "case vod",
             "VOD\", subtitle:",
-            "VODView(api: api, playback: playback, store: store, sources: vodSources, xtreamSources: sourceManager.enabledSources(kind: .xtreamCodes), config: config)",
+            "VODView(api: api, playback: playback, store: store, sources: vodSources, xtreamSources: sourceManager.enabledSources(kind: .xtreamCodes), config: config, launchQuery: $vodLaunchQuery)",
         ],
     )
 
@@ -516,6 +516,59 @@ def test_playback_bar_integrated_into_detail_panel() -> None:
     )
 
 
+def test_settings_sources_feed_basic_flows() -> None:
+    assert_contains(
+        "Sources/OpenClawMedia/App.swift",
+        [
+            "sourceManager.enabledSources(kind: .iptvM3U)",
+            "sourceManager.enabledSources(kind: .vodTVBox)",
+            "sourceManager.enabledSources(kind: .backendMusic) + sourceManager.enabledSources(kind: .musicBuiltin)",
+            "loadTVBoxSources(from:",
+            "onChange(of: sourceManager.sources)",
+            "vodLaunchQuery",
+            "enabledMusicSourceCount",
+        ],
+    )
+
+
+def test_movie_dashboard_is_actionable_not_placeholder_only() -> None:
+    assert_contains(
+        "Sources/OpenClawMedia/App.swift",
+        [
+            "MovieActionCard",
+            "openVODFromDashboard",
+            "openMusicFromDashboard",
+            "playDashboardHistory",
+            "openSettings:",
+            "Start Watching",
+            "Recent",
+        ],
+    )
+
+
+def test_vod_and_music_have_visible_search_starters() -> None:
+    assert_contains(
+        "Sources/OpenClawMedia/Views/VODView.swift",
+        [
+            "quickTerms",
+            "configured VOD entries",
+            "runQuickSearch",
+            "No VOD sources are ready",
+            "consumeLaunchQueryIfNeeded",
+        ],
+    )
+    assert_contains(
+        "Sources/OpenClawMedia/App.swift",
+        [
+            "MusicEmptyState",
+            "musicQuickTerms",
+            "runMusicQuickSearch",
+            "No enabled music source",
+            "Search music from enabled sources",
+        ],
+    )
+
+
 def test_in_app_update_checker_exists() -> None:
     assert_contains(
         "Sources/OpenClawMedia/Services/AppUpdateChecker.swift",
@@ -574,6 +627,9 @@ if __name__ == "__main__":
         test_source_management_ui_wired,
         test_keyboard_shortcuts_and_playback_bar_exist,
         test_playback_bar_integrated_into_detail_panel,
+        test_settings_sources_feed_basic_flows,
+        test_movie_dashboard_is_actionable_not_placeholder_only,
+        test_vod_and_music_have_visible_search_starters,
         test_in_app_update_checker_exists,
     ]
     for test in tests:

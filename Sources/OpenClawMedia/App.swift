@@ -95,6 +95,7 @@ struct MediaHomeView: View {
     @State private var selectedRoute: IPTVRoute?
     @State private var selectedSong: Song?
     @State private var lyrics: LyricsResponse?
+    @State private var vodLaunchQuery: String?
 
     private let m3uParser = M3UPlaylistParser()
     private let tvBoxParser = TVBoxConfigParser()
@@ -116,16 +117,24 @@ struct MediaHomeView: View {
                 Sidebar(selection: $sidebarSelection, mode: $mode, status: status, config: config)
                 switch sidebarSelection {
                 case .movie:
-                    MovieDashboardView(channels: channels, vodSources: vodSources, config: config) {
-                        sidebarSelection = .iptv
-                        mode = .iptv
-                    }
+                    MovieDashboardView(
+                        channels: channels,
+                        vodSources: vodSources,
+                        recentItems: store.recentHistory(limit: 4),
+                        config: config,
+                        openIPTV: openIPTVFromDashboard,
+                        openVOD: openVODFromDashboard,
+                        openMusic: openMusicFromDashboard,
+                        openSettings: { sidebarSelection = .settings },
+                        playRecent: playDashboardHistory
+                    )
                 case .vod:
-                    VODView(api: api, playback: playback, store: store, sources: vodSources, xtreamSources: sourceManager.enabledSources(kind: .xtreamCodes), config: config)
+                    VODView(api: api, playback: playback, store: store, sources: vodSources, xtreamSources: sourceManager.enabledSources(kind: .xtreamCodes), config: config, launchQuery: $vodLaunchQuery)
                 case .queue:
                     QueuePanel(store: store, playback: playback, playItem: playQueueItem)
                 case .iptv, .music:
-                    MainPanel(mode: $mode, query: $query, channels: channels, songs: songs, selectedChannel: $selectedChannel, selectedSong: $selectedSong, status: status, loadChannels: loadChannels, searchSongs: searchSongs, selectChannel: selectChannel, selectSong: selectSong)
+                    MainPanel(mode: $mode, query: $query, channels: channels, songs: songs, selectedChannel: $selectedChannel, selectedSong: $selectedSong, status: status, musicSourceCount: enabledMusicSourceCount, loadChannels: loadChannels, searchSongs: searchSongs, runMusicQuickSearch: runMusicQuickSearch, selectChannel: selectChannel, selectSong: selectSong)
+                        .frame(width: playback.nowPlayingURL == nil ? nil : 430)
                     DetailPanel(
                         mode: mode,
                         channel: selectedChannel,
@@ -157,12 +166,19 @@ struct MediaHomeView: View {
         .onAppear {
             _ = establishMediaKeyboardShortcuts(playback)
         }
+        .onChange(of: sourceManager.sources) { _ in
+            Task {
+                await loadChannels()
+                await loadVODSources()
+            }
+        }
     }
 
     private func loadChannels() async {
         do {
             status = "Parsing IPTV channels…"
             var parsed: [IPTVChannel] = []
+            var errors: [String] = []
             if let iptvURL = config.iptvPlaylistURL {
                 do {
                     let (data, _) = try await URLSession.shared.data(from: iptvURL)
@@ -170,10 +186,22 @@ struct MediaHomeView: View {
                         status = "IPTV source could not be parsed. Check that the configured URL returns a UTF-8 M3U playlist."
                         return
                     }
-                    parsed = m3uParser.parseChannels(text, sourceName: iptvURL.lastPathComponent)
+                    parsed.append(contentsOf: m3uParser.parseChannels(text, sourceName: iptvURL.lastPathComponent))
                 } catch {
-                    status = SourceDiagnostics.parsingFailure(kind: .iptvM3U, error: error)
-                    return
+                    errors.append(SourceDiagnostics.parsingFailure(kind: .iptvM3U, error: error))
+                }
+            }
+            for source in sourceManager.enabledSources(kind: .iptvM3U) {
+                guard let url = source.baseURL ?? source.fileURL else { continue }
+                do {
+                    let (data, _) = try await URLSession.shared.data(from: url)
+                    guard let text = String(data: data, encoding: .utf8) else {
+                        errors.append("IPTV source could not be parsed for \(source.name): expected UTF-8 M3U playlist.")
+                        continue
+                    }
+                    parsed.append(contentsOf: m3uParser.parseChannels(text, sourceName: source.name))
+                } catch {
+                    errors.append("\(source.name): \(error.localizedDescription)")
                 }
             }
             for source in sourceManager.enabledSources(kind: .xtreamCodes) {
@@ -192,10 +220,11 @@ struct MediaHomeView: View {
                 let response = try await api.iptvChannels(query: query, showLimited: false)
                 parsed = response.channels
             }
-            channels = parsed
-            selectedChannel = parsed.first
+            channels = dedupeChannels(parsed)
+            selectedChannel = channels.first
             mode = .iptv
-            status = "Loaded \(parsed.count) IPTV channels"
+            let warning = errors.isEmpty ? "" : " · \(errors.count) source warning(s)"
+            status = "Loaded \(channels.count) IPTV channels\(warning)"
         } catch {
             status = SourceDiagnostics.parsingFailure(kind: .backendMovie, error: error)
         }
@@ -203,21 +232,44 @@ struct MediaHomeView: View {
 
     private func loadVODSources() async {
         let xtreamVOD = sourceManager.enabledSources(kind: .xtreamCodes).compactMap { try? XtreamCodesAdapter.vodSource(from: $0) }
-        guard let feedURL = config.vodConfigURL ?? config.jsSourceImportURL ?? SourcePresets.builtinTVBoxFeed else {
-            vodSources = xtreamVOD
-            status = "Loaded \(vodSources.count) VOD sources"
-            return
+        var merged: [VODSource] = []
+        var errors: [String] = []
+        var feeds: [(url: URL, name: String)] = []
+        if let url = config.vodConfigURL { feeds.append((url, "VOD config")) }
+        if let url = config.jsSourceImportURL { feeds.append((url, "JS source import")) }
+        feeds.append(contentsOf: sourceManager.enabledSources(kind: .vodTVBox).compactMap { source in
+            guard let url = source.baseURL ?? source.fileURL else { return nil }
+            return (url, source.name)
+        })
+
+        var seenFeeds = Set<String>()
+        feeds = feeds.filter { seenFeeds.insert($0.url.absoluteString).inserted }
+
+        status = "Parsing VOD sources…"
+        for feed in feeds {
+            do {
+                merged.append(contentsOf: try await loadTVBoxSources(from: feed.url))
+            } catch {
+                errors.append("\(feed.name): \(error.localizedDescription)")
+            }
         }
-        do {
-            status = "Parsing VOD sources…"
-            let (data, _) = try await URLSession.shared.data(from: feedURL)
-            let config = try tvBoxParser.parse(data)
-            vodSources = config.sources.filter { $0.searchable } + xtreamVOD
-            status = "Loaded \(vodSources.count) VOD sources"
-        } catch {
-            vodSources = xtreamVOD
-            status = xtreamVOD.isEmpty ? SourceDiagnostics.parsingFailure(kind: .vodTVBox, error: error) : "Loaded \(xtreamVOD.count) Xtream VOD sources; TVBox parse failed: \(error.localizedDescription)"
+        if merged.isEmpty {
+            do {
+                if let builtin = SourcePresets.builtinTVBoxFeed {
+                    merged.append(contentsOf: try await loadTVBoxSources(from: builtin))
+                }
+            } catch {
+                errors.append("Built-in TVBox: \(error.localizedDescription)")
+            }
         }
+        vodSources = dedupeVODSources(merged) + xtreamVOD
+        let warning = errors.isEmpty ? "" : " · \(errors.count) source warning(s)"
+        status = vodSources.isEmpty ? "No VOD sources loaded. Add TVBox or Xtream sources in Settings." : "Loaded \(vodSources.count) VOD sources\(warning)"
+    }
+
+    private func loadTVBoxSources(from url: URL) async throws -> [VODSource] {
+        let (data, _) = try await URLSession.shared.data(from: url)
+        return try tvBoxParser.parse(data).sources.filter { $0.searchable }
     }
 
     private func searchSongs() async {
@@ -232,6 +284,17 @@ struct MediaHomeView: View {
         } catch {
             status = "音乐搜索失败：\(error.localizedDescription)"
         }
+    }
+
+    private func runMusicQuickSearch(_ term: String) {
+        query = term
+        mode = .music
+        sidebarSelection = .music
+        Task { await searchSongs() }
+    }
+
+    private var enabledMusicSourceCount: Int {
+        sourceManager.enabledSources(kind: .backendMusic).count + sourceManager.enabledSources(kind: .musicBuiltin).count
     }
 
     private func searchSongsAcrossSources(query: String) async throws -> MusicSearchResponse {
@@ -260,6 +323,62 @@ struct MediaHomeView: View {
             if seen.contains(key) { return false }
             seen.insert(key)
             return true
+        }
+    }
+
+    private func dedupeChannels(_ values: [IPTVChannel]) -> [IPTVChannel] {
+        var seen = Set<String>()
+        return values.filter { channel in
+            let key = "\(channel.name)|\(channel.playURL.isEmpty ? channel.url : channel.playURL)"
+            if seen.contains(key) { return false }
+            seen.insert(key)
+            return true
+        }
+    }
+
+    private func dedupeVODSources(_ values: [VODSource]) -> [VODSource] {
+        var seen = Set<String>()
+        return values.filter { source in
+            let key = "\(source.id)|\(source.api.absoluteString)"
+            if seen.contains(key) { return false }
+            seen.insert(key)
+            return true
+        }
+    }
+
+    private func openIPTVFromDashboard() {
+        sidebarSelection = .iptv
+        mode = .iptv
+        if channels.isEmpty { Task { await loadChannels() } }
+    }
+
+    private func openVODFromDashboard(_ term: String) {
+        vodLaunchQuery = term
+        sidebarSelection = .vod
+    }
+
+    private func openMusicFromDashboard(_ term: String) {
+        runMusicQuickSearch(term)
+    }
+
+    private func playDashboardHistory(_ item: HistoryItem) {
+        switch item.type {
+        case .iptvChannel:
+            if let channel = channels.first(where: { $0.name == item.id || $0.name == item.title }) {
+                selectChannel(channel)
+                sidebarSelection = .iptv
+                Task { await playSelectedChannel() }
+            } else {
+                openIPTVFromDashboard()
+                status = "Loaded IPTV. Select \(item.title) again if it is still available."
+            }
+        case .musicSong:
+            sidebarSelection = .music
+            mode = .music
+            query = item.title
+            Task { await searchSongs() }
+        case .vodItem:
+            openVODFromDashboard(item.title)
         }
     }
 
@@ -479,10 +598,16 @@ struct Sidebar: View {
 struct MovieDashboardView: View {
     let channels: [IPTVChannel]
     let vodSources: [VODSource]
+    let recentItems: [HistoryItem]
     let config: AppConfig
     let openIPTV: () -> Void
+    let openVOD: (String) -> Void
+    let openMusic: (String) -> Void
+    let openSettings: () -> Void
+    let playRecent: (HistoryItem) -> Void
 
-    private let heroTags = ["继续看", "豆瓣热门", "IMDb Top 250", "高分", "科幻", "喜剧", "国产剧"]
+    private let vodTerms = ["长安", "庆余年", "繁花", "流浪地球"]
+    private let musicTerms = ["周杰伦", "陈奕迅", "Taylor Swift"]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -502,34 +627,61 @@ struct MovieDashboardView: View {
                 .tint(AppTheme.blue)
             }
 
-            HStack(spacing: 8) {
-                ForEach(heroTags, id: \.self) { tag in
-                    FilterChip(title: tag, active: tag == "继续看")
-                }
-            }
-
             HStack(spacing: 14) {
-                FeatureCard(title: "继续观看", value: channels.first?.name ?? "等待 IPTV 数据", detail: "打开 App 后自动加载频道；后续接最近播放", icon: "play.rectangle.fill", tint: AppTheme.green)
-                FeatureCard(title: "可用频道", value: "\(channels.count)", detail: "来自 Movie Lite 后端 normalized API", icon: "antenna.radiowaves.left.and.right", tint: AppTheme.blue)
-                FeatureCard(title: "片源策略", value: "Direct", detail: "默认不代理流媒体；支持 IINA / Copy URL", icon: "arrow.up.forward.app", tint: AppTheme.purple)
+                MovieActionCard(title: "IPTV", value: "\(channels.count) channels", detail: channels.first?.name ?? "Load live channels", icon: "play.tv", tint: AppTheme.blue, action: openIPTV)
+                MovieActionCard(title: "VOD", value: "\(vodSources.count) sources", detail: "Search TVBox and Xtream", icon: "play.rectangle.fill", tint: AppTheme.purple) { openVOD("热门") }
+                MovieActionCard(title: "Music", value: "Quick search", detail: "Find songs from enabled backends", icon: "music.note.list", tint: AppTheme.green) { openMusic("周杰伦") }
+                MovieActionCard(title: "Sources", value: config.movieBaseURL.host ?? "Settings", detail: "Add or enable providers", icon: "gearshape", tint: AppTheme.amber, action: openSettings)
             }
 
             VStack(alignment: .leading, spacing: 12) {
-                SectionHeader(title: "Discovery layout", subtitle: "Figma Make → SwiftUI native translation")
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4), spacing: 12) {
-                    PosterPlaceholder(title: "豆瓣热门", subtitle: "Top picks", gradient: [AppTheme.purple, AppTheme.blue])
-                    PosterPlaceholder(title: "IMDb 250", subtitle: "High score", gradient: [AppTheme.blue, AppTheme.green])
-                    PosterPlaceholder(title: "最近播放", subtitle: "Continue", gradient: [AppTheme.green, AppTheme.amber])
-                    PosterPlaceholder(title: "源管理", subtitle: config.movieBaseURL.host ?? "configured", gradient: [AppTheme.amber, AppTheme.purple])
+                SectionHeader(title: "Start Watching", subtitle: "Actionable entry points")
+                HStack(spacing: 8) {
+                    ForEach(vodTerms, id: \.self) { term in
+                        Button { openVOD(term) } label: { Label(term, systemImage: "magnifyingglass") }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                    }
+                    Spacer()
+                    ForEach(musicTerms, id: \.self) { term in
+                        Button { openMusic(term) } label: { Label(term, systemImage: "music.note") }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                    }
                 }
             }
 
             VStack(alignment: .leading, spacing: 10) {
-                SectionHeader(title: "Next native functions", subtitle: "功能完善优先级")
-                ChecklistRow(done: true, text: "Movie / IPTV / Music / Image Gen modules share one native shell")
-                ChecklistRow(done: true, text: "Source provider model keeps weak-backend + strong-client architecture")
-                ChecklistRow(done: false, text: "Movie detail API + source route switching")
-                ChecklistRow(done: false, text: "Open in IINA / Copy stream URL actions")
+                SectionHeader(title: "Recent", subtitle: recentItems.isEmpty ? "Play something to build history" : "Resume from local history")
+                if recentItems.isEmpty {
+                    Text("No recent playback yet. Open IPTV, search VOD, or search Music to start.")
+                        .font(.system(size: 13))
+                        .foregroundStyle(AppTheme.mutedText)
+                } else {
+                    ForEach(recentItems) { item in
+                        Button { playRecent(item) } label: {
+                            HStack(spacing: 10) {
+                                Image(systemName: icon(for: item.type))
+                                    .foregroundStyle(AppTheme.blue)
+                                    .frame(width: 20)
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(item.title)
+                                        .font(.system(size: 13, weight: .semibold))
+                                    Text(item.subtitle)
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(AppTheme.mutedText)
+                                        .lineLimit(1)
+                                }
+                                Spacer()
+                                Image(systemName: "play.fill")
+                                    .foregroundStyle(AppTheme.green)
+                            }
+                            .padding(10)
+                            .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
             }
             .padding(14)
             .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
@@ -541,6 +693,14 @@ struct MovieDashboardView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(AppTheme.panel, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(AppTheme.hairline))
+    }
+
+    private func icon(for type: MediaItemType) -> String {
+        switch type {
+        case .iptvChannel: return "play.tv"
+        case .musicSong: return "music.note"
+        case .vodItem: return "play.rectangle"
+        }
     }
 }
 
@@ -706,10 +866,14 @@ struct MainPanel: View {
     @Binding var selectedChannel: IPTVChannel?
     @Binding var selectedSong: Song?
     let status: String
+    let musicSourceCount: Int
     let loadChannels: () async -> Void
     let searchSongs: () async -> Void
+    let runMusicQuickSearch: (String) -> Void
     let selectChannel: (IPTVChannel) -> Void
     let selectSong: (Song) -> Void
+
+    private let musicQuickTerms = ["周杰伦", "陈奕迅", "Taylor Swift", "热门"]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -755,29 +919,57 @@ struct MainPanel: View {
             }
 
             HStack(spacing: 8) {
-                FilterChip(title: "All", active: true)
-                FilterChip(title: mode == .iptv ? "HTTPS only" : "Playable")
-                FilterChip(title: mode == .iptv ? "CCTV" : "Lyrics")
-                FilterChip(title: mode == .iptv ? "Sports" : "Queue")
+                if mode == .music {
+                    ForEach(musicQuickTerms, id: \.self) { term in
+                        Button { runMusicQuickSearch(term) } label: { Label(term, systemImage: "music.note") }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                    }
+                } else {
+                    FilterChip(title: "All", active: true)
+                    FilterChip(title: "HTTPS only")
+                    FilterChip(title: "CCTV")
+                    FilterChip(title: "Sports")
+                }
             }
 
             ScrollView {
-                LazyVStack(spacing: 10) {
-                    if mode == .iptv {
+                if mode == .music && songs.isEmpty {
+                    MusicEmptyState(sourceCount: musicSourceCount, runSearch: runMusicQuickSearch)
+                        .frame(maxWidth: .infinity, minHeight: 320)
+                } else if mode == .iptv && channels.isEmpty {
+                    VStack(spacing: 12) {
+                        Image(systemName: "play.tv")
+                            .font(.system(size: 42))
+                            .foregroundStyle(AppTheme.mutedText)
+                        Text("No IPTV channels loaded")
+                            .font(.system(size: 16, weight: .semibold))
+                        Text("Add or enable M3U/Xtream sources in Settings, then refresh.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(AppTheme.mutedText)
+                        Button { Task { await loadChannels() } } label: { Label("Refresh IPTV", systemImage: "arrow.clockwise") }
+                            .buttonStyle(.borderedProminent)
+                            .tint(AppTheme.blue)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 320)
+                } else {
+                    LazyVStack(spacing: 10) {
+                        if mode == .iptv {
                         ForEach(channels.prefix(80)) { channel in
                             ChannelRow(channel: channel, active: selectedChannel?.id == channel.id) {
                                 selectChannel(channel)
                             }
                         }
-                    } else {
+                        } else {
                         ForEach(songs.prefix(80)) { song in
                             SongRow(song: song, active: selectedSong?.id == song.id) {
                                 selectSong(song)
                             }
                         }
+                        }
                     }
+                    .padding(.vertical, 4)
                 }
-                .padding(.vertical, 4)
             }
         }
         .padding(18)
@@ -1658,7 +1850,7 @@ struct DetailPanel: View {
             Spacer()
         }
         .padding(18)
-        .frame(width: 330)
+        .frame(width: playback.nowPlayingURL == nil ? 330 : 450)
         .frame(maxHeight: .infinity)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(AppTheme.hairline))
@@ -1839,6 +2031,78 @@ struct RouteBadge: View {
     }
 }
 
+struct MovieActionCard: View {
+    let title: String
+    let value: String
+    let detail: String
+    let icon: String
+    let tint: Color
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Image(systemName: icon)
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(tint)
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(AppTheme.mutedText)
+                }
+                Text(title)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(AppTheme.secondaryText)
+                Text(value)
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(AppTheme.primaryText)
+                    .lineLimit(1)
+                Text(detail)
+                    .font(.system(size: 12))
+                    .foregroundStyle(AppTheme.mutedText)
+                    .lineLimit(2)
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, minHeight: 132, alignment: .leading)
+            .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(tint.opacity(0.22)))
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+struct MusicEmptyState: View {
+    let sourceCount: Int
+    let runSearch: (String) -> Void
+
+    private let terms = ["周杰伦", "陈奕迅", "Taylor Swift", "热门"]
+
+    var body: some View {
+        VStack(spacing: 14) {
+            Image(systemName: "music.note.list")
+                .font(.system(size: 46))
+                .foregroundStyle(AppTheme.mutedText.opacity(0.65))
+            Text(sourceCount > 0 ? "Search music from enabled sources" : "No enabled music source")
+                .font(.system(size: 17, weight: .semibold))
+            Text(sourceCount > 0 ? "\(sourceCount) music source(s) are enabled. Use a quick search or type a song/artist above." : "Enable a Music backend or unlocked built-in music source in Settings, then search again.")
+                .font(.system(size: 12))
+                .foregroundStyle(AppTheme.mutedText)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 420)
+            HStack(spacing: 8) {
+                ForEach(terms, id: \.self) { term in
+                    Button { runSearch(term) } label: { Label(term, systemImage: "magnifyingglass") }
+                        .buttonStyle(.borderedProminent)
+                        .tint(AppTheme.green)
+                        .controlSize(.small)
+                }
+            }
+        }
+        .padding(24)
+    }
+}
+
 struct CapabilityBadge: View {
     let title: String
     let icon: String
@@ -1939,7 +2203,7 @@ struct NativePlayerSurface: View {
                     .foregroundStyle(.white.opacity(0.9))
             }
         }
-        .frame(height: 178)
+        .frame(height: active ? 250 : 178)
     }
 }
 
@@ -1982,12 +2246,13 @@ struct PlaybackActionRow: View {
             .tint(AppTheme.green)
 
             HStack(spacing: 8) {
-                Button("Resume", action: resume)
-                Button("Stop", action: stop)
-                Button("Copy URL", action: copyURL)
-                Button("Open in IINA", action: openInIINA)
+                Button { resume() } label: { Label("Resume", systemImage: "play.fill") }
+                Button { stop() } label: { Label("Stop", systemImage: "stop.fill") }
+                Button { copyURL() } label: { Label("Copy URL", systemImage: "doc.on.doc") }
+                Button { openInIINA() } label: { Label("Open in IINA", systemImage: "arrow.up.forward.app") }
             }
             .buttonStyle(.bordered)
+            .controlSize(.small)
         }
     }
 }
