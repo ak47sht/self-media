@@ -148,6 +148,7 @@ struct MediaHomeView: View {
         }
         .frame(minWidth: 1080, minHeight: 680)
         .task {
+            sourceManager.seedDefaultSourcesIfNeeded(config: config)
             if channels.isEmpty { await loadChannels() }
             if vodSources.isEmpty { await loadVODSources() }
         }
@@ -199,7 +200,7 @@ struct MediaHomeView: View {
     private func searchSongs() async {
         do {
             status = "Searching music…"
-            let response = try await api.searchSongs(query: query)
+            let response = try await searchSongsAcrossSources(query: query)
             songs = response.songs
             selectedSong = response.songs.first
             lyrics = nil
@@ -207,6 +208,35 @@ struct MediaHomeView: View {
             status = "Found \(response.count) songs"
         } catch {
             status = "音乐搜索失败：\(error.localizedDescription)"
+        }
+    }
+
+    private func searchSongsAcrossSources(query: String) async throws -> MusicSearchResponse {
+        let enabled = sourceManager.enabledSources(kind: .backendMusic) + sourceManager.enabledSources(kind: .musicBuiltin)
+        let bases = enabled.compactMap(\.baseURL)
+        guard !bases.isEmpty else { return try await api.searchSongs(query: query) }
+
+        var merged: [Song] = []
+        var lastError: Error?
+        for base in bases {
+            do {
+                let response = try await api.searchSongs(base: base, query: query)
+                merged.append(contentsOf: response.songs)
+            } catch {
+                lastError = error
+            }
+        }
+        if merged.isEmpty, let lastError { throw lastError }
+        return MusicSearchResponse(songs: dedupeSongs(merged), count: merged.count, cache: nil, ncm_cache: nil)
+    }
+
+    private func dedupeSongs(_ values: [Song]) -> [Song] {
+        var seen = Set<String>()
+        return values.filter { song in
+            let key = "\(song.source)|\(song.id)|\(song.name)|\(song.artist)"
+            if seen.contains(key) { return false }
+            seen.insert(key)
+            return true
         }
     }
 
@@ -239,7 +269,7 @@ struct MediaHomeView: View {
         guard let song = selectedSong else { return }
         do {
             status = "Resolving audio URL…"
-            let response = try await api.playURL(for: song)
+            let response = try await resolvePlayURLAcrossSources(for: song)
             guard let value = response.url, let url = URL(string: value) else {
                 status = response.error ?? "没有可播放的音乐 URL"
                 return
@@ -255,10 +285,38 @@ struct MediaHomeView: View {
 
     private func loadLyrics(for song: Song) async {
         do {
-            lyrics = try await api.lyrics(for: song)
+            lyrics = try await loadLyricsAcrossSources(for: song)
         } catch {
             // Lyrics are optional; keep playback running.
         }
+    }
+
+    private func resolvePlayURLAcrossSources(for song: Song) async throws -> PlayURLResponse {
+        let bases = (sourceManager.enabledSources(kind: .backendMusic) + sourceManager.enabledSources(kind: .musicBuiltin)).compactMap(\.baseURL)
+        guard !bases.isEmpty else { return try await api.playURL(for: song) }
+        var lastError: Error?
+        for base in bases {
+            do {
+                let response = try await api.playURL(base: base, for: song)
+                if response.url != nil { return response }
+                if response.error != nil { continue }
+            } catch {
+                lastError = error
+            }
+        }
+        if let lastError { throw lastError }
+        return PlayURLResponse(url: nil, provider: nil, error: "没有可播放的音乐 URL")
+    }
+
+    private func loadLyricsAcrossSources(for song: Song) async throws -> LyricsResponse {
+        let bases = (sourceManager.enabledSources(kind: .backendMusic) + sourceManager.enabledSources(kind: .musicBuiltin)).compactMap(\.baseURL)
+        guard !bases.isEmpty else { return try await api.lyrics(for: song) }
+        var lastError: Error?
+        for base in bases {
+            do { return try await api.lyrics(base: base, for: song) }
+            catch { lastError = error }
+        }
+        throw lastError ?? URLError(.badServerResponse)
     }
 
     private func copyCurrentURL() {
@@ -703,7 +761,7 @@ struct EditableAppConfig {
     var iptvPlaylistURL: String
     var vodConfigURL: String
     var jsSourceImportURL: String
-    var musicUnlockCode: String
+    var previousMusicUnlockHash: String
     var aiImageProviderBaseURL: String
     var aiImageProviderModel: String
     var aiImageAPIKey: String
@@ -718,7 +776,7 @@ struct EditableAppConfig {
         iptvPlaylistURL = config.iptvPlaylistURL?.absoluteString ?? ""
         vodConfigURL = config.vodConfigURL?.absoluteString ?? ""
         jsSourceImportURL = config.jsSourceImportURL?.absoluteString ?? ""
-        musicUnlockCode = config.musicUnlockCodeHash
+        previousMusicUnlockHash = config.musicUnlockCodeHash
         aiImageProviderBaseURL = config.aiImageProviderBaseURL?.absoluteString ?? ""
         aiImageProviderModel = config.aiImageProviderModel
         aiImageAPIKey = config.aiImageAPIKey
@@ -727,14 +785,15 @@ struct EditableAppConfig {
         allowInsecureLocalhost = config.allowInsecureLocalhost
     }
 
-    func build() -> AppConfig? {
+    func build(musicUnlockCode: String) -> AppConfig? {
         guard let movie = URL(string: movieBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)),
               let music = URL(string: musicBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)) else { return nil }
         let iptv = iptvPlaylistURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : URL(string: iptvPlaylistURL.trimmingCharacters(in: .whitespacesAndNewlines))
         let vod = vodConfigURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : URL(string: vodConfigURL.trimmingCharacters(in: .whitespacesAndNewlines))
         let js = jsSourceImportURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : URL(string: jsSourceImportURL.trimmingCharacters(in: .whitespacesAndNewlines))
         let aiBase = aiImageProviderBaseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : URL(string: aiImageProviderBaseURL.trimmingCharacters(in: .whitespacesAndNewlines))
-        let unlockHash = musicUnlockCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : musicUnlockCode
+        let rawUnlock = musicUnlockCode.trimmingCharacters(in: .whitespacesAndNewlines)
+        let unlockHash = rawUnlock.isEmpty ? previousMusicUnlockHash : AppConfig.sha256Hex(rawUnlock)
         return AppConfig(
             appName: appName.isEmpty ? "OpenClaw Media" : appName,
             movieBaseURL: movie,
@@ -759,6 +818,7 @@ struct ConfigurationCenterView: View {
     @State private var draft: EditableAppConfig
     @State private var saveStatus = "Configuration is stored locally only."
     @State private var selectedTab = 0
+    @State private var musicUnlockCode = ""
 
     init(config: Binding<AppConfig>, sourceManager: SourceManager) {
         _config = config
@@ -827,8 +887,15 @@ struct ConfigurationCenterView: View {
                         .font(.system(size: 18, weight: .bold))
                         .padding(.top, 8)
 
-                    ConfigSection(title: "Music built-in", subtitle: "内置音乐源（需解锁码开启）") {
-                        SecureConfigField(title: "Music unlock code", placeholder: "输入解锁码激活内置音乐源", text: $draft.musicUnlockCode)
+                    ConfigSection(title: "Music built-in", subtitle: "内置音乐源（需解锁码开启；保存后 Sources 会显示启用状态）") {
+                        SecureConfigField(title: "Music unlock code", placeholder: config.isMusicUnlocked ? "已解锁；留空保持解锁" : "输入解锁码激活内置音乐源", text: $musicUnlockCode)
+                        HStack(spacing: 8) {
+                            Image(systemName: config.isMusicUnlocked ? "checkmark.seal.fill" : "lock.fill")
+                                .foregroundStyle(config.isMusicUnlocked ? AppTheme.green : AppTheme.mutedText)
+                            Text(config.isMusicUnlocked ? "内置音乐源已解锁" : "未解锁：只使用外部 Music backend")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(config.isMusicUnlocked ? AppTheme.green : AppTheme.mutedText)
+                        }
                     }
 
                     Text("AI 生图")
@@ -869,13 +936,17 @@ struct ConfigurationCenterView: View {
     }
 
     private func save() {
-        guard let next = draft.build() else {
+        guard let next = draft.build(musicUnlockCode: musicUnlockCode) else {
             saveStatus = "Invalid URL. Please check Movie backend URL and Music backend URL."
             return
         }
         do {
             try ConfigStore.save(next)
             config = next
+            sourceManager.seedDefaultSourcesIfNeeded(config: next)
+            if let builtin = sourceManager.sources.first(where: { $0.id == "builtin-music-unlocked" }) {
+                sourceManager.updateSource(id: builtin.id, enabled: next.isMusicUnlocked)
+            }
             saveStatus = "Saved configuration to ~/Library/Application Support/OpenClawMedia/config.json. Restart is recommended after changing backend URLs."
         } catch {
             saveStatus = "Save failed: \(error.localizedDescription)"
@@ -1429,7 +1500,7 @@ struct NativePlayerSurface: View {
     var body: some View {
         ZStack {
             if active {
-                VideoPlayer(player: player)
+                LegacyAVPlayerView(player: player)
                     .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
             } else {
                 RoundedRectangle(cornerRadius: 22, style: .continuous)
@@ -1440,6 +1511,23 @@ struct NativePlayerSurface: View {
             }
         }
         .frame(height: 178)
+    }
+}
+
+struct LegacyAVPlayerView: NSViewRepresentable {
+    let player: AVPlayer
+
+    func makeNSView(context: Context) -> AVPlayerView {
+        let view = AVPlayerView()
+        view.player = player
+        view.controlsStyle = .floating
+        view.videoGravity = .resizeAspect
+        view.allowsPictureInPicturePlayback = true
+        return view
+    }
+
+    func updateNSView(_ nsView: AVPlayerView, context: Context) {
+        if nsView.player !== player { nsView.player = player }
     }
 }
 

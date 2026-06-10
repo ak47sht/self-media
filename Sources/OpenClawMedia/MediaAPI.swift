@@ -28,6 +28,10 @@ final class MediaAPI: ObservableObject {
         try await get(base: config.musicBaseURL, path: "/api/search", queryItems: [URLQueryItem(name: "q", value: query)])
     }
 
+    func searchSongs(base: URL, query: String) async throws -> MusicSearchResponse {
+        try await get(base: base, path: "/api/search", queryItems: [URLQueryItem(name: "q", value: query)])
+    }
+
     func playURL(for song: Song) async throws -> PlayURLResponse {
         try await get(base: config.musicBaseURL, path: "/api/play-url", queryItems: [
             URLQueryItem(name: "id", value: song.id),
@@ -39,8 +43,28 @@ final class MediaAPI: ObservableObject {
         ])
     }
 
+    func playURL(base: URL, for song: Song) async throws -> PlayURLResponse {
+        try await get(base: base, path: "/api/play-url", queryItems: [
+            URLQueryItem(name: "id", value: song.id),
+            URLQueryItem(name: "source", value: song.source),
+            URLQueryItem(name: "name", value: song.name),
+            URLQueryItem(name: "artist", value: song.artist),
+            URLQueryItem(name: "duration", value: song.duration ?? ""),
+            URLQueryItem(name: "br", value: "320kmp3")
+        ])
+    }
+
     func lyrics(for song: Song) async throws -> LyricsResponse {
         try await get(base: config.musicBaseURL, path: "/api/lyrics", queryItems: [
+            URLQueryItem(name: "id", value: song.id),
+            URLQueryItem(name: "source", value: song.source),
+            URLQueryItem(name: "name", value: song.name),
+            URLQueryItem(name: "artist", value: song.artist)
+        ])
+    }
+
+    func lyrics(base: URL, for song: Song) async throws -> LyricsResponse {
+        try await get(base: base, path: "/api/lyrics", queryItems: [
             URLQueryItem(name: "id", value: song.id),
             URLQueryItem(name: "source", value: song.source),
             URLQueryItem(name: "name", value: song.name),

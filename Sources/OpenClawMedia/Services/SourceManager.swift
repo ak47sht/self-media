@@ -15,6 +15,28 @@ final class SourceManager: ObservableObject {
         load()
     }
 
+    func seedDefaultSourcesIfNeeded(config: AppConfig) {
+        let presets = SourcePresets.defaultSources(config: config)
+        if sources.isEmpty {
+            sources = presets
+            save()
+            return
+        }
+
+        var changed = false
+        for preset in presets where !sources.contains(where: { $0.id == preset.id }) {
+            sources.append(preset)
+            changed = true
+        }
+        if changed { save() }
+    }
+
+    func enabledSources(kind: MediaSourceKind) -> [MediaSourceConfig] {
+        sources
+            .filter { $0.kind == kind && $0.enabled }
+            .sorted { $0.priority < $1.priority }
+    }
+
     // MARK: - Load / Save
 
     func load() {

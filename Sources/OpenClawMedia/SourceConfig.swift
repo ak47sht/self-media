@@ -52,6 +52,7 @@ struct MediaSourceConfig: Codable, Identifiable, Hashable {
 
 enum SourcePresets {
     static let builtinTVBoxFeed: URL? = URL(string: "https://raw.githubusercontent.com/FongMi/Release/main/tv/box.conf")
+    static let musicUnlockCodeHash = "221a23ba7ffc678de46bb3d4a2b2cced4476daf0ed1f88e23ec22f922c940518"
 
     static func defaultSources(config: AppConfig) -> [MediaSourceConfig] {
         [
@@ -83,6 +84,21 @@ enum SourcePresets {
                     SourceCapability(name: "Backend normalized", enabled: true),
                     SourceCapability(name: "Direct play locally", enabled: true),
                     SourceCapability(name: "Lyrics", enabled: true),
+                ]
+            ),
+            MediaSourceConfig(
+                id: "builtin-music-unlocked",
+                name: "Built-in music sources",
+                kind: .musicBuiltin,
+                baseURL: config.musicBaseURL,
+                fileURL: nil,
+                enabled: config.isMusicUnlocked,
+                priority: 25,
+                tags: ["Music", "built-in"],
+                capabilities: [
+                    SourceCapability(name: "Search", enabled: config.isMusicUnlocked),
+                    SourceCapability(name: "Direct play locally", enabled: config.isMusicUnlocked),
+                    SourceCapability(name: "Unlock required", enabled: !config.isMusicUnlocked),
                 ]
             ),
             MediaSourceConfig(
