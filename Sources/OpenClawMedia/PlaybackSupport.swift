@@ -132,6 +132,7 @@ final class NativePlaybackManager: ObservableObject {
 
     private var fallbackAttempts = 0
     private var playerItemObserver: NSKeyValueObservation?
+    private var timeControlKVO: NSKeyValueObservation?
     private var timeControlObserver: NSObjectProtocol?
     private var didEndObserver: NSObjectProtocol?
     private var errorObserver: NSObjectProtocol?
@@ -263,8 +264,8 @@ final class NativePlaybackManager: ObservableObject {
             }
         }
 
-        // Also observe the player's own timeControlStatus
-        _ = player.observe(\.timeControlStatus, options: [.new]) { [weak self] player, _ in
+        // KVO on player's own timeControlStatus for play/pause/buffer changes
+        timeControlKVO = player.observe(\.timeControlStatus, options: [.new]) { [weak self] player, _ in
             Task { @MainActor [weak self] in
                 self?.handleTimeControlStatus(player.timeControlStatus)
             }
@@ -274,6 +275,8 @@ final class NativePlaybackManager: ObservableObject {
     private func stopObserving() {
         playerItemObserver?.invalidate()
         playerItemObserver = nil
+        timeControlKVO?.invalidate()
+        timeControlKVO = nil
 
         if let obs = timeControlObserver { NotificationCenter.default.removeObserver(obs) }
         timeControlObserver = nil
