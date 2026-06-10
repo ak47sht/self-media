@@ -1739,6 +1739,7 @@ struct QueueRow: View {
 }
 
 struct DetailPanel: View {
+    @State private var showingFullScreenPlayer = false
     let mode: MediaMode
     let channel: IPTVChannel?
     @Binding var selectedRoute: IPTVRoute?
@@ -1774,7 +1775,22 @@ struct DetailPanel: View {
             }
 
             VStack(alignment: .leading, spacing: 12) {
-                NativePlayerSurface(player: playback.player, mode: mode, active: playback.nowPlayingURL != nil)
+                ZStack(alignment: .topTrailing) {
+                    NativePlayerSurface(player: playback.player, mode: mode, active: playback.nowPlayingURL != nil)
+                    Button {
+                        showingFullScreenPlayer = true
+                    } label: {
+                        Label("Fullscreen", systemImage: "arrow.up.left.and.arrow.down.right")
+                            .labelStyle(.iconOnly)
+                            .frame(width: 30, height: 30)
+                            .background(.black.opacity(0.42), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.white)
+                    .padding(10)
+                    .disabled(playback.nowPlayingURL == nil)
+                    .opacity(playback.nowPlayingURL == nil ? 0.35 : 1)
+                }
 
                 if mode == .iptv, let channel {
                     HStack(alignment: .firstTextBaseline) {
@@ -1877,6 +1893,64 @@ struct DetailPanel: View {
         .background(AppTheme.panel.opacity(0.86), in: RoundedRectangle(cornerRadius: DesignTokens.panelRadius, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: DesignTokens.panelRadius, style: .continuous).stroke(AppTheme.hairline))
         .shadow(color: .black.opacity(0.20), radius: 26, y: 16)
+        .fullScreenCover(isPresented: $showingFullScreenPlayer) {
+            FullScreenPlayerView(playback: playback, title: playback.nowPlayingTitle.isEmpty ? "Now playing" : playback.nowPlayingTitle, dismiss: { showingFullScreenPlayer = false })
+        }
+    }
+}
+
+struct FullScreenPlayerView: View {
+    @ObservedObject var playback: NativePlaybackManager
+    let title: String
+    let dismiss: () -> Void
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            Color.black.ignoresSafeArea()
+            VStack(spacing: 14) {
+                VideoPlayer(player: playback.player)
+                    .background(Color.black)
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                VStack(spacing: 8) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(title)
+                                .font(.system(size: 18, weight: .semibold))
+                                .lineLimit(1)
+                            Text(playback.nowPlayingURL?.host ?? playback.state.displayText)
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(AppTheme.mutedText)
+                                .lineLimit(1)
+                        }
+                        Spacer()
+                        Button(playback.isPlaying ? "Pause" : "Resume") {
+                            if playback.isPlaying {
+                                playback.pause()
+                            } else {
+                                playback.resume()
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(AppTheme.blue)
+                        Button("Stop") { playback.stop(); dismiss() }
+                            .buttonStyle(.bordered)
+                    }
+                    PlaybackControlBar(playback: playback)
+                }
+            }
+            .padding(22)
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 30, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.92))
+                    .shadow(radius: 6)
+            }
+            .buttonStyle(.plain)
+            .padding(24)
+            .keyboardShortcut(.escape, modifiers: [])
+        }
     }
 }
 

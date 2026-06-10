@@ -23,6 +23,7 @@ struct VODView: View {
     @State private var selectedEpisode: VODEpisode?
     @State private var resolvedRequestsByEpisode: [String: [PlaybackRequest]] = [:]
     @State private var xtreamSourceByVODID: [String: MediaSourceConfig] = [:]
+    @State private var showingFullScreenPlayer = false
 
     private let searchableSources: [VODSource]
 
@@ -70,7 +71,12 @@ struct VODView: View {
         .sheet(isPresented: $isDetailPresented) {
             detailSheet
         }
-        .onAppear { consumeLaunchQueryIfNeeded() }
+        .onAppear {
+            consumeLaunchQueryIfNeeded()
+            if results.isEmpty && query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && (!searchableSources.isEmpty || !xtreamSources.isEmpty) {
+                Task { await search() }
+            }
+        }
         .onChange(of: launchQuery) { _ in consumeLaunchQueryIfNeeded() }
     }
 
@@ -216,6 +222,15 @@ struct VODView: View {
                         .lineLimit(1)
                 }
                 Spacer()
+                Button {
+                    showingFullScreenPlayer = true
+                } label: {
+                    Label("Fullscreen", systemImage: "arrow.up.left.and.arrow.down.right")
+                        .labelStyle(.iconOnly)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(playback.nowPlayingURL == nil)
                 Circle()
                     .fill(playback.isPlaying ? AppTheme.green : AppTheme.mutedText)
                     .frame(width: 8, height: 8)
@@ -251,6 +266,9 @@ struct VODView: View {
         .background(AppTheme.panel.opacity(0.88), in: RoundedRectangle(cornerRadius: DesignTokens.panelRadius, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: DesignTokens.panelRadius, style: .continuous).stroke(AppTheme.hairline))
         .shadow(color: .black.opacity(0.20), radius: 26, y: 16)
+        .fullScreenCover(isPresented: $showingFullScreenPlayer) {
+            FullScreenPlayerView(playback: playback, title: playback.nowPlayingTitle.isEmpty ? "VOD player" : playback.nowPlayingTitle, dismiss: { showingFullScreenPlayer = false })
+        }
     }
 
     private func detailContent(for item: VODDetailItem) -> some View {
@@ -398,14 +416,13 @@ struct VODView: View {
     // MARK: - Actions
 
     private func search() async {
-        let q = query.trimmingCharacters(in: .whitespaces)
-        guard !q.isEmpty else { return }
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !searchableSources.isEmpty || !xtreamSources.isEmpty else {
             searchStatus = "No VOD sources configured. Add TVBox/VOD or Xtream sources in Settings."
             return
         }
         isSearching = true
-        searchStatus = "Searching…"
+        searchStatus = q.isEmpty ? "Loading latest VOD titles…" : "Searching…"
         results = []
         xtreamSourceByVODID = [:]
         var allResults: [VODSearchItem] = []
@@ -441,8 +458,8 @@ struct VODView: View {
         activeSource = searchableSources.first
         isSearching = false
         searchStatus = allResults.isEmpty
-            ? "No results found. Errors: \(errors.joined(separator: "; "))"
-            : "Found \(allResults.count) titles across \(searchableSources.count) sources"
+            ? "No VOD results. Errors: \(errors.isEmpty ? "none" : errors.joined(separator: "; "))"
+            : (q.isEmpty ? "Loaded \(allResults.count) latest titles from \(searchableSources.count) sources" : "Found \(allResults.count) titles across \(searchableSources.count) sources")
     }
 
     private func runQuickSearch(_ term: String) {

@@ -87,9 +87,12 @@ final class MediaAPI: ObservableObject {
 
     // MARK: - VOD (TVBox direct API)
 
-    /// Search a TVBox source directly.
+    /// Search/list a TVBox source directly. Empty query falls back to ac=list so a configured source can show content before typing.
     func searchVOD(source: VODSource, query: String) async throws -> VODSearchResponse {
-        let items = [URLQueryItem(name: "wd", value: query), URLQueryItem(name: "pg", value: "1")]
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let items = trimmed.isEmpty
+            ? [URLQueryItem(name: "ac", value: "list"), URLQueryItem(name: "pg", value: "1")]
+            : [URLQueryItem(name: "wd", value: trimmed), URLQueryItem(name: "pg", value: "1")]
         return try await get(base: source.api, path: "", queryItems: items)
     }
 
@@ -120,15 +123,30 @@ final class MediaAPI: ObservableObject {
     }
 
     private func get<T: Decodable>(base: URL, path: String, queryItems: [URLQueryItem]) async throws -> T {
-        let cleanPath = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        var components = URLComponents(url: base.appendingPathComponent(cleanPath), resolvingAgainstBaseURL: false)!
-        components.queryItems = queryItems.isEmpty ? nil : queryItems
-        guard let url = components.url else { throw URLError(.badURL) }
-        let (data, response) = try await session.data(from: url)
+        let url = try buildURL(base: base, path: path, queryItems: queryItems)
+        var request = URLRequest(url: url)
+        request.setValue("OpenClawMedia/1.0", forHTTPHeaderField: "User-Agent")
+        request.setValue("application/json, text/plain, */*", forHTTPHeaderField: "Accept")
+        let (data, response) = try await session.data(for: request)
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
             throw URLError(.badServerResponse)
         }
         return try decoder.decode(T.self, from: data)
+    }
+
+    private func buildURL(base: URL, path: String, queryItems: [URLQueryItem]) throws -> URL {
+        let cleanPath = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let resolvedBase = cleanPath.isEmpty ? base : base.appendingPathComponent(cleanPath)
+        guard var components = URLComponents(url: resolvedBase, resolvingAgainstBaseURL: false) else {
+            throw URLError(.badURL)
+        }
+        if !queryItems.isEmpty {
+            var merged = components.queryItems ?? []
+            merged.append(contentsOf: queryItems)
+            components.queryItems = merged
+        }
+        guard let url = components.url else { throw URLError(.badURL) }
+        return url
     }
 
     private func post<T: Decodable, Body: Encodable>(base: URL, path: String, body: Body, bearerToken: String) async throws -> T {
