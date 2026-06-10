@@ -4,6 +4,7 @@ import SwiftUI
 struct VODView: View {
     @ObservedObject var api: MediaAPI
     @ObservedObject var playback: NativePlaybackManager
+    @ObservedObject var store: LocalStore
     let sources: [VODSource]
     let config: AppConfig
 
@@ -18,12 +19,14 @@ struct VODView: View {
     @State private var isDetailPresented = false
     @State private var activeSource: VODSource?
     @State private var selectedEpisode: VODEpisode?
+    @State private var resolvedRequestsByEpisode: [String: [PlaybackRequest]] = [:]
 
     private let searchableSources: [VODSource]
 
-    init(api: MediaAPI, playback: NativePlaybackManager, sources: [VODSource], config: AppConfig) {
+    init(api: MediaAPI, playback: NativePlaybackManager, store: LocalStore, sources: [VODSource], config: AppConfig) {
         self.api = api
         self.playback = playback
+        self.store = store
         self.sources = sources
         self.config = config
         self.searchableSources = sources.filter { $0.searchable }
@@ -248,6 +251,17 @@ struct VODView: View {
                     copyURL: { copyVODURL(to: item) },
                     openInIINA: { openVODInIINA(to: item) }
                 )
+
+                if let ep = selectedEpisode {
+                    Button {
+                        enqueueSelectedEpisode(ep, detail: item)
+                    } label: {
+                        Label("Add episode to Queue", systemImage: "text.line.first.and.arrowtriangle.forward")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(playback.nowPlayingURL == nil && resolvedRequestsByEpisode[ep.id]?.first == nil)
+                }
             }
         }
         .padding(.top, 4)
@@ -339,6 +353,7 @@ struct VODView: View {
         selectedItem = item
         detailItem = nil
         selectedEpisode = nil
+        resolvedRequestsByEpisode = [:]
         isDetailLoading = true
         detailStatus = "Loading detail…"
 
@@ -375,15 +390,15 @@ struct VODView: View {
 
         do {
             let playResp = try await api.vodPlay(source: source, flag: ep.flag, id: ep.url)
-            if let urlStr = playResp.url, let url = URL(string: urlStr) {
-                playback.play(url: url, title: "\(detail.vodName) · \(ep.title)")
-                detailStatus = "Playing: \(ep.title)"
-            } else if playResp.parse == 1, let extraStr = playResp.extra, let extraURL = URL(string: extraStr) {
-                // Source needs server-side parsing — try the extra URL
-                playback.play(url: extraURL, title: "\(detail.vodName) · \(ep.title)")
-                detailStatus = "Playing via parser: \(ep.title)"
+            let candidates = VODPlaybackResolver.resolve(response: playResp, source: source, episode: ep)
+            resolvedRequestsByEpisode[ep.id] = candidates
+            if let primary = candidates.first {
+                playback.play(request: primary, title: "\(detail.vodName) · \(ep.title)", fallbacks: Array(candidates.dropFirst()))
+                store.addToHistory(id: "\(detail.vodID)-\(ep.id)", type: .vodItem, title: detail.vodName, subtitle: ep.title, thumbnailURL: detail.vodPic, detailPath: ep.url)
+                let headerNote = primary.headers.isEmpty ? "" : " · headers: \(primary.headers.keys.sorted().joined(separator: ", "))"
+                detailStatus = "Playing: \(ep.title) · \(primary.reason)\(headerNote)"
             } else {
-                detailStatus = "Source returned no playable URL for this episode."
+                detailStatus = VODPlaybackResolver.userMessage(for: playResp, candidates: candidates)
             }
         } catch {
             detailStatus = "Play failed: \(error.localizedDescription)"
@@ -406,6 +421,25 @@ struct VODView: View {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(url.absoluteString, forType: .string)
         detailStatus = "Stream URL copied."
+    }
+
+    private func enqueueSelectedEpisode(_ ep: VODEpisode, detail: VODDetailItem) {
+        let request = resolvedRequestsByEpisode[ep.id]?.first
+        let streamURL = request.map(StreamURLNormalizer.serialize) ?? playback.nowPlayingURL?.absoluteString
+        guard let streamURL else {
+            detailStatus = "Resolve or play this episode before adding it to Queue."
+            return
+        }
+        store.enqueue(
+            id: "\(detail.vodID)-\(ep.id)-\(Date().timeIntervalSince1970)",
+            type: .vodItem,
+            title: detail.vodName,
+            subtitle: ep.title,
+            thumbnailURL: detail.vodPic,
+            detailPath: ep.url,
+            streamURL: streamURL
+        )
+        detailStatus = "Added to Queue: \(ep.title)"
     }
 
     private func openVODInIINA(to detail: VODDetailItem) {

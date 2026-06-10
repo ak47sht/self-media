@@ -121,8 +121,10 @@ struct MediaHomeView: View {
                         mode = .iptv
                     }
                 case .vod:
-                    VODView(api: api, playback: playback, sources: vodSources, config: config)
-                case .iptv, .music, .queue:
+                    VODView(api: api, playback: playback, store: store, sources: vodSources, config: config)
+                case .queue:
+                    QueuePanel(store: store, playback: playback, playItem: playQueueItem)
+                case .iptv, .music:
                     MainPanel(mode: $mode, query: $query, channels: channels, songs: songs, selectedChannel: $selectedChannel, selectedSong: $selectedSong, status: status, loadChannels: loadChannels, searchSongs: searchSongs, selectChannel: selectChannel, selectSong: selectSong)
                     DetailPanel(
                         mode: mode,
@@ -338,6 +340,16 @@ struct MediaHomeView: View {
             NSWorkspace.shared.open(url)
             status = "IINA 未响应，已用系统默认 App 打开 URL"
         }
+    }
+
+    private func playQueueItem(_ item: QueueItem) async {
+        guard let raw = item.streamURL, let request = StreamURLNormalizer.normalize(raw, label: "queue") else {
+            status = "队列项目没有可播放 URL，请从原页面重新解析。"
+            return
+        }
+        playback.play(request: request, title: item.title)
+        store.addToHistory(id: item.id, type: item.type, title: item.title, subtitle: item.subtitle, thumbnailURL: item.thumbnailURL, detailPath: item.detailPath)
+        status = "队列播放：\(item.title)"
     }
 }
 
@@ -887,12 +899,12 @@ struct ConfigurationCenterView: View {
                         .font(.system(size: 18, weight: .bold))
                         .padding(.top, 8)
 
-                    ConfigSection(title: "Music built-in", subtitle: "内置音乐源（需解锁码开启；保存后 Sources 会显示启用状态）") {
+                    ConfigSection(title: "Unlocked music backend", subtitle: "解锁后启用附加音乐 backend 能力；不是离线内置解析器") {
                         SecureConfigField(title: "Music unlock code", placeholder: config.isMusicUnlocked ? "已解锁；留空保持解锁" : "输入解锁码激活内置音乐源", text: $musicUnlockCode)
                         HStack(spacing: 8) {
                             Image(systemName: config.isMusicUnlocked ? "checkmark.seal.fill" : "lock.fill")
                                 .foregroundStyle(config.isMusicUnlocked ? AppTheme.green : AppTheme.mutedText)
-                            Text(config.isMusicUnlocked ? "内置音乐源已解锁" : "未解锁：只使用外部 Music backend")
+                            Text(config.isMusicUnlocked ? "附加音乐 backend 已解锁并启用" : "未解锁：只使用外部 Music backend")
                                 .font(.system(size: 12, weight: .semibold))
                                 .foregroundStyle(config.isMusicUnlocked ? AppTheme.green : AppTheme.mutedText)
                         }
@@ -1268,6 +1280,112 @@ struct SourceCard: View {
         case .customParser: return "curlybraces"
         case .vodTVBox: return "play.rectangle"
         case .musicBuiltin: return "music.quarternote.3"
+        }
+    }
+}
+
+struct QueuePanel: View {
+    @ObservedObject var store: LocalStore
+    @ObservedObject var playback: NativePlaybackManager
+    let playItem: (QueueItem) async -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Queue")
+                        .font(.system(size: 30, weight: .semibold, design: .rounded))
+                    Text("可播放 URL 入队后可直接续播；没有 URL 的项目会提示回源重新解析。")
+                        .font(.system(size: 13))
+                        .foregroundStyle(AppTheme.secondaryText)
+                }
+                Spacer()
+                Button("Clear") { store.clearQueue() }
+                    .buttonStyle(.bordered)
+                    .disabled(store.queue.isEmpty)
+            }
+
+            ScrollView {
+                LazyVStack(spacing: 10) {
+                    ForEach(store.queue.sorted { $0.order < $1.order }) { item in
+                        QueueRow(item: item) {
+                            Task { await playItem(item) }
+                        } remove: {
+                            store.dequeue(item)
+                        }
+                    }
+                    if store.queue.isEmpty {
+                        VStack(spacing: 12) {
+                            Image(systemName: "text.line.first.and.arrowtriangle.forward")
+                                .font(.system(size: 42))
+                                .foregroundStyle(AppTheme.mutedText.opacity(0.5))
+                            Text("Queue is empty")
+                                .font(.system(size: 18, weight: .semibold))
+                            Text("在 VOD 详情或播放页把项目加入队列后，会出现在这里。")
+                                .font(.system(size: 13))
+                                .foregroundStyle(AppTheme.mutedText)
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 320)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+
+            if playback.nowPlayingURL != nil {
+                Text(playback.state.displayText)
+                    .font(.system(size: 12))
+                    .foregroundStyle(playback.state.isError ? AppTheme.amber : AppTheme.mutedText)
+                PlaybackControlBar(playback: playback)
+            }
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(AppTheme.panel, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(AppTheme.hairline))
+    }
+}
+
+struct QueueRow: View {
+    let item: QueueItem
+    let play: () -> Void
+    let remove: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: iconName)
+                .frame(width: 38, height: 38)
+                .background(AppTheme.elevated, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            VStack(alignment: .leading, spacing: 5) {
+                Text(item.title)
+                    .font(.system(size: 14, weight: .semibold))
+                Text(item.subtitle)
+                    .font(.system(size: 12))
+                    .foregroundStyle(AppTheme.secondaryText)
+                    .lineLimit(1)
+                Text(item.streamURL == nil ? "Needs resolve" : "Ready URL")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(item.streamURL == nil ? AppTheme.amber : AppTheme.green)
+            }
+            Spacer()
+            Button("Play", action: play)
+                .buttonStyle(.borderedProminent)
+                .tint(AppTheme.green)
+                .disabled(item.streamURL == nil)
+            Button(role: .destructive, action: remove) {
+                Image(systemName: "trash")
+            }
+            .buttonStyle(.bordered)
+        }
+        .padding(12)
+        .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(AppTheme.hairline))
+    }
+
+    private var iconName: String {
+        switch item.type {
+        case .iptvChannel: return "play.tv"
+        case .musicSong: return "music.note"
+        case .vodItem: return "play.rectangle.fill"
         }
     }
 }

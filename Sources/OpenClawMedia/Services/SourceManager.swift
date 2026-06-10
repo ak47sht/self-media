@@ -24,9 +24,19 @@ final class SourceManager: ObservableObject {
         }
 
         var changed = false
-        for preset in presets where !sources.contains(where: { $0.id == preset.id }) {
-            sources.append(preset)
-            changed = true
+        for preset in presets {
+            if let index = sources.firstIndex(where: { $0.id == preset.id }) {
+                sources[index].name = preset.name
+                sources[index].baseURL = preset.baseURL
+                sources[index].capabilities = preset.capabilities
+                if preset.id == "builtin-music-unlocked" {
+                    sources[index].enabled = preset.enabled
+                }
+                changed = true
+            } else {
+                sources.append(preset)
+                changed = true
+            }
         }
         if changed { save() }
     }

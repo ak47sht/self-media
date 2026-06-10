@@ -94,7 +94,11 @@ final class LocalStore: ObservableObject {
     func enqueue(id: String, type: MediaItemType, title: String, subtitle: String, thumbnailURL: String?, detailPath: String?, streamURL: String?) {
         let nextOrder = (queue.map(\.order).max() ?? -1) + 1
         let item = QueueItem(id: id, type: type, title: title, subtitle: subtitle, thumbnailURL: thumbnailURL, detailPath: detailPath, streamURL: streamURL, order: nextOrder, addedAt: Date())
-        queue.append(item)
+        if let existing = queue.firstIndex(where: { $0.id == id }) {
+            queue[existing] = item
+        } else {
+            queue.append(item)
+        }
         saveQueue()
     }
 

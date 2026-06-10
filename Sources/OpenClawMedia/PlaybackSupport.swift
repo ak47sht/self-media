@@ -46,6 +46,16 @@ struct ResolvedPlaybackRoute: Equatable {
     let route: IPTVRoute?
     let isNativePreferred: Bool
     let reason: String
+    let headers: [String: String]
+
+    init(url: URL, label: String, route: IPTVRoute?, isNativePreferred: Bool, reason: String, headers: [String: String] = [:]) {
+        self.url = url
+        self.label = label
+        self.route = route
+        self.isNativePreferred = isNativePreferred
+        self.reason = reason
+        self.headers = headers
+    }
 }
 
 // MARK: - Route Resolver
@@ -140,13 +150,13 @@ final class NativePlaybackManager: ObservableObject {
     // Callback to request route switch from parent view (IPTV channel context).
     var onRouteFallbackRequested: ((IPTVChannel) async -> Void)?
 
-    func play(url: URL, title: String, fallbacks: [ResolvedPlaybackRoute] = []) {
+    func play(url: URL, title: String, fallbacks: [ResolvedPlaybackRoute] = [], headers: [String: String] = [:]) {
         stopObserving()
         fallbackAttempts = 0
         fallbackRoutes = fallbacks
         currentRouteIndex = 0
 
-        let item = AVPlayerItem(url: url)
+        let item = makePlayerItem(url: url, headers: headers)
         player.replaceCurrentItem(with: item)
 
         nowPlayingURL = url
@@ -160,7 +170,27 @@ final class NativePlaybackManager: ObservableObject {
     }
 
     func play(url: URL, title: String) {
-        play(url: url, title: title, fallbacks: [])
+        play(url: url, title: title, fallbacks: [], headers: [:])
+    }
+
+    func play(request: PlaybackRequest, title: String, fallbacks: [PlaybackRequest] = []) {
+        let routes = fallbacks.map { request in
+            ResolvedPlaybackRoute(
+                url: request.url,
+                label: request.label,
+                route: nil,
+                isNativePreferred: true,
+                reason: request.reason,
+                headers: request.headers
+            )
+        }
+        play(url: request.url, title: title, fallbacks: routes, headers: request.headers)
+    }
+
+    private func makePlayerItem(url: URL, headers: [String: String] = [:]) -> AVPlayerItem {
+        guard !headers.isEmpty else { return AVPlayerItem(url: url) }
+        let asset = AVURLAsset(url: url, options: ["AVURLAssetHTTPHeaderFieldsKey": headers])
+        return AVPlayerItem(asset: asset)
     }
 
     func pause() {
@@ -203,7 +233,7 @@ final class NativePlaybackManager: ObservableObject {
         fallbackAttempts += 1
         currentRouteIndex = fallbackAttempts
 
-        let item = AVPlayerItem(url: next.url)
+        let item = makePlayerItem(url: next.url, headers: next.headers)
         player.replaceCurrentItem(with: item)
         nowPlayingURL = next.url
         state = .loading("Trying route \(fallbackAttempts)/\(fallbackRoutes.count): \(next.label)")

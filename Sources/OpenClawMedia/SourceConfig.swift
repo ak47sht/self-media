@@ -19,7 +19,7 @@ enum MediaSourceKind: String, Codable, CaseIterable, Identifiable {
         case .iptvM3U: return "IPTV / M3U"
         case .aiImageProvider: return "AI image provider"
         case .vodTVBox: return "TVBox / VOD"
-        case .musicBuiltin: return "Music built-in"
+        case .musicBuiltin: return "Unlocked music backend"
         case .openlist: return "OpenList"
         case .customParser: return "Custom parser"
         }
@@ -88,7 +88,7 @@ enum SourcePresets {
             ),
             MediaSourceConfig(
                 id: "builtin-music-unlocked",
-                name: "Built-in music sources",
+                name: "Unlocked music backend sources",
                 kind: .musicBuiltin,
                 baseURL: config.musicBaseURL,
                 fileURL: nil,

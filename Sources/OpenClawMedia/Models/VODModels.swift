@@ -129,8 +129,27 @@ struct VODPlayResponse: Codable, Equatable {
     let url: String?
     let parse: Int?
     let extra: String?  // Some sources need extra parsing
+    let header: String?
+    let headers: [String: String]?
+    let msg: String?
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        url = try container.decodeIfPresent(String.self, forKey: .url)
+        parse = try container.decodeFlexibleIntIfPresent(forKey: .parse)
+        extra = try container.decodeIfPresent(String.self, forKey: .extra)
+        header = try container.decodeIfPresent(String.self, forKey: .header)
+        headers = try container.decodeIfPresent([String: String].self, forKey: .headers)
+        msg = try container.decodeIfPresent(String.self, forKey: .msg)
+    }
+
+    var resolvedHeaders: [String: String] {
+        var result = headers ?? [:]
+        result.merge(StreamURLNormalizer.headers(from: header)) { _, new in new }
+        return result
+    }
 
     enum CodingKeys: String, CodingKey {
-        case url, parse, extra
+        case url, parse, extra, header, headers, msg
     }
 }

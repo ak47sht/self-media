@@ -242,7 +242,7 @@ def test_vod_sidebar_integration() -> None:
         [
             "case vod",
             "VOD\", subtitle:",
-            "VODView(api: api, playback: playback, sources: vodSources, config: config)",
+            "VODView(api: api, playback: playback, store: store, sources: vodSources, config: config)",
         ],
     )
 
