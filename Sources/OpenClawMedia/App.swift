@@ -151,6 +151,9 @@ struct MediaHomeView: View {
             if channels.isEmpty { await loadChannels() }
             if vodSources.isEmpty { await loadVODSources() }
         }
+        .onAppear {
+            _ = establishMediaKeyboardShortcuts(playback)
+        }
     }
 
     private func loadChannels() async {
@@ -1291,6 +1294,11 @@ struct DetailPanel: View {
                 .foregroundStyle(playback.state.isError ? AppTheme.amber : AppTheme.mutedText)
                 .lineLimit(3)
 
+            Text("Space play/pause · K stop · F fullscreen · M mute")
+                .font(.system(size: 10))
+                .foregroundStyle(AppTheme.mutedText)
+                .opacity(0.6)
+
             if playback.state.isError {
                 HStack(spacing: 8) {
                     Button("Try next route") { _ = playback.tryNextFallback() }
@@ -1302,6 +1310,11 @@ struct DetailPanel: View {
                         .controlSize(.small)
                 }
                 .padding(.top, 4)
+            }
+
+            if playback.nowPlayingURL != nil {
+                PlaybackControlBar(playback: playback)
+                    .padding(.top, 8)
             }
 
             Spacer()
