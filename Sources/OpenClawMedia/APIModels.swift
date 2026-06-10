@@ -64,3 +64,37 @@ struct LyricsResponse: Codable, Equatable {
     let text: String
     let lines: [LyricLine]
 }
+
+struct AIImageGenerationRequest: Codable, Equatable {
+    let model: String
+    let prompt: String
+    let negativePrompt: String?
+    let size: String
+    let n: Int
+
+    enum CodingKeys: String, CodingKey {
+        case model
+        case prompt
+        case negativePrompt = "negative_prompt"
+        case size
+        case n
+    }
+}
+
+struct AIImageGenerationData: Codable, Identifiable, Equatable {
+    var id: String { url ?? revisedPrompt ?? "image" }
+    let url: String?
+    let b64Json: String?
+    let revisedPrompt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case url
+        case b64Json = "b64_json"
+        case revisedPrompt = "revised_prompt"
+    }
+}
+
+struct AIImageGenerationResponse: Codable, Equatable {
+    let created: Int?
+    let data: [AIImageGenerationData]
+}

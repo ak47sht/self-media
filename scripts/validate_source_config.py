@@ -123,6 +123,35 @@ def test_ai_key_uses_keychain_not_json() -> None:
     )
 
 
+def test_next_ga_completions_exist() -> None:
+    assert_contains(
+        "Sources/OpenClawMedia/App.swift",
+        [
+            "Open in IINA",
+            "openCurrentURLInIINA",
+            "NSWorkspace.shared.open",
+            "generateImage",
+            "generatedImageURL",
+        ],
+    )
+    assert_contains(
+        "Sources/OpenClawMedia/MediaAPI.swift",
+        [
+            "func generateImage",
+            "Bearer",
+            "images/generations",
+        ],
+    )
+    assert_contains(
+        "Sources/OpenClawMedia/Config.swift",
+        [
+            "var reloadIdentity",
+            "aiImageProviderBaseURL?.absoluteString",
+            "iptvPlaylistURL?.absoluteString",
+        ],
+    )
+
+
 if __name__ == "__main__":
     tests = [
         test_source_models_exist,
@@ -131,6 +160,7 @@ if __name__ == "__main__":
         test_in_app_configuration_is_editable_and_persisted,
         test_native_playback_ga_paths_exist,
         test_ai_key_uses_keychain_not_json,
+        test_next_ga_completions_exist,
     ]
     for test in tests:
         test()

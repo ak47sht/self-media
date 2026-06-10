@@ -48,12 +48,41 @@ final class MediaAPI: ObservableObject {
         ])
     }
 
+    func generateImage(prompt: String, negativePrompt: String, size: String) async throws -> AIImageGenerationResponse {
+        guard let base = config.aiImageProviderBaseURL else { throw URLError(.badURL) }
+        let cleanModel = config.aiImageProviderModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        let request = AIImageGenerationRequest(
+            model: cleanModel.isEmpty || cleanModel == "provider-default" ? "dall-e-3" : cleanModel,
+            prompt: prompt,
+            negativePrompt: negativePrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : negativePrompt,
+            size: size.replacingOccurrences(of: "×", with: "x"),
+            n: 1
+        )
+        return try await post(base: base, path: "/images/generations", body: request, bearerToken: config.aiImageAPIKey)
+    }
+
     private func get<T: Decodable>(base: URL, path: String, queryItems: [URLQueryItem]) async throws -> T {
         let cleanPath = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         var components = URLComponents(url: base.appendingPathComponent(cleanPath), resolvingAgainstBaseURL: false)!
         components.queryItems = queryItems.isEmpty ? nil : queryItems
         guard let url = components.url else { throw URLError(.badURL) }
         let (data, response) = try await session.data(from: url)
+        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+            throw URLError(.badServerResponse)
+        }
+        return try decoder.decode(T.self, from: data)
+    }
+
+    private func post<T: Decodable, Body: Encodable>(base: URL, path: String, body: Body, bearerToken: String) async throws -> T {
+        let cleanPath = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let url = base.appendingPathComponent(cleanPath)
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let token = bearerToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !token.isEmpty { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        request.httpBody = try JSONEncoder().encode(body)
+        let (data, response) = try await session.data(for: request)
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
             throw URLError(.badServerResponse)
         }

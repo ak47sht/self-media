@@ -18,7 +18,7 @@ struct ContentView: View {
 
     var body: some View {
         MediaHomeView(config: $config)
-            .id(config.movieBaseURL.absoluteString + config.musicBaseURL.absoluteString)
+            .id(config.reloadIdentity)
     }
 }
 
@@ -126,10 +126,11 @@ struct MediaHomeView: View {
                         status: status,
                         playChannel: playSelectedChannel,
                         playSong: playSelectedSong,
-                        copyCurrentURL: copyCurrentURL
+                        copyCurrentURL: copyCurrentURL,
+                        openCurrentURLInIINA: openCurrentURLInIINA
                     )
                 case .imageGen:
-                    ImageGenView(sources: SourcePresets.defaultSources(config: config))
+                    ImageGenView(config: config, sources: SourcePresets.defaultSources(config: config))
                 case .settings:
                     ConfigurationCenterView(config: $config)
                 }
@@ -222,6 +223,20 @@ struct MediaHomeView: View {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(url.absoluteString, forType: .string)
         status = "已复制当前播放 URL"
+    }
+
+    private func openCurrentURLInIINA() {
+        guard let url = playback.nowPlayingURL else {
+            status = "请先播放或解析一个 URL"
+            return
+        }
+        let iinaURL = URL(string: "iina://weblink?url=\(url.absoluteString.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? url.absoluteString)")!
+        if NSWorkspace.shared.open(iinaURL) {
+            status = "已发送到 IINA"
+        } else {
+            NSWorkspace.shared.open(url)
+            status = "IINA 未响应，已用系统默认 App 打开 URL"
+        }
     }
 }
 
@@ -391,13 +406,23 @@ struct MovieDashboardView: View {
 }
 
 struct ImageGenView: View {
+    let config: AppConfig
     let sources: [MediaSourceConfig]
+    @StateObject private var api: MediaAPI
     @State private var prompt = ""
     @State private var negativePrompt = ""
     @State private var selectedModel = "Provider default"
     @State private var selectedSize = "1024×1024"
     @State private var selectedStyle = "Digital Art"
     @State private var advanced = false
+    @State private var generationStatus = "Ready"
+    @State private var generatedImageURL: URL?
+
+    init(config: AppConfig, sources: [MediaSourceConfig]) {
+        self.config = config
+        self.sources = sources
+        _api = StateObject(wrappedValue: MediaAPI(config: config))
+    }
 
     private let models = ["Provider default", "FLUX.1 Pro", "Stable Diffusion XL", "DALL-E compatible", "Custom model ID"]
     private let sizes = ["512×512", "768×768", "1024×1024", "1024×768", "768×1024", "1920×1080"]
@@ -460,13 +485,17 @@ struct ImageGenView: View {
                 }
 
                 Button {
-                    prompt = prompt.isEmpty ? "A cinematic native macOS media cockpit, dark sidebar, purple cyan glow, compact information density" : prompt
+                    Task { await generateImage() }
                 } label: {
-                    Label("Prepare request", systemImage: "wand.and.stars")
+                    Label("Generate image", systemImage: "wand.and.stars")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(AppTheme.purple)
+
+                Text(generationStatus)
+                    .font(.system(size: 12))
+                    .foregroundStyle(AppTheme.mutedText)
 
                 Spacer()
             }
@@ -476,9 +505,24 @@ struct ImageGenView: View {
             .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(AppTheme.hairline))
 
             VStack(alignment: .leading, spacing: 14) {
-                SectionHeader(title: "Gallery", subtitle: "本地历史占位，后续接真实生成结果")
-                ForEach(0..<4, id: \.self) { index in
-                    GeneratedImagePlaceholder(index: index, style: selectedStyle, size: selectedSize)
+                SectionHeader(title: "Gallery", subtitle: generatedImageURL == nil ? "生成结果会显示在这里" : "Latest provider result")
+                if let generatedImageURL {
+                    AsyncImage(url: generatedImageURL) { image in
+                        image
+                            .resizable()
+                            .scaledToFit()
+                    } placeholder: {
+                        ProgressView()
+                            .frame(maxWidth: .infinity, minHeight: 180)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(AppTheme.hairline))
+                    Button("Open image URL") { NSWorkspace.shared.open(generatedImageURL) }
+                } else {
+                    ForEach(0..<4, id: \.self) { index in
+                        GeneratedImagePlaceholder(index: index, style: selectedStyle, size: selectedSize)
+                    }
                 }
                 Spacer()
             }
@@ -487,6 +531,30 @@ struct ImageGenView: View {
             .frame(maxHeight: .infinity)
             .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(AppTheme.hairline))
+        }
+    }
+
+    private func generateImage() async {
+        let cleanPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanPrompt.isEmpty else {
+            generationStatus = "请输入 prompt。"
+            return
+        }
+        guard config.aiImageProviderBaseURL != nil else {
+            generationStatus = "请先在 Settings 配置 AI provider base URL。"
+            return
+        }
+        generationStatus = "Generating image…"
+        do {
+            let response = try await api.generateImage(prompt: cleanPrompt, negativePrompt: negativePrompt, size: selectedSize)
+            if let urlString = response.data.first?.url, let url = URL(string: urlString) {
+                generatedImageURL = url
+                generationStatus = "生成完成。"
+            } else {
+                generationStatus = "Provider 返回了结果，但没有 URL；b64_json 暂未展示。"
+            }
+        } catch {
+            generationStatus = "生成失败：\(error.localizedDescription)"
         }
     }
 }
@@ -906,6 +974,7 @@ struct DetailPanel: View {
     let playChannel: () async -> Void
     let playSong: () async -> Void
     let copyCurrentURL: () -> Void
+    let openCurrentURLInIINA: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -929,7 +998,8 @@ struct DetailPanel: View {
                         pause: { playback.pause() },
                         resume: { playback.resume() },
                         stop: { playback.stop() },
-                        copyURL: copyCurrentURL
+                        copyURL: copyCurrentURL,
+                        openInIINA: openCurrentURLInIINA
                     )
                 } else if mode == .music, let song {
                     Text(song.name).font(.system(size: 24, weight: .semibold))
@@ -942,7 +1012,8 @@ struct DetailPanel: View {
                         pause: { playback.pause() },
                         resume: { playback.resume() },
                         stop: { playback.stop() },
-                        copyURL: copyCurrentURL
+                        copyURL: copyCurrentURL,
+                        openInIINA: openCurrentURLInIINA
                     )
                     LyricsPreview(lyrics: lyrics)
                 } else {
@@ -1098,6 +1169,7 @@ struct PlaybackActionRow: View {
     let resume: () -> Void
     let stop: () -> Void
     let copyURL: () -> Void
+    let openInIINA: () -> Void
 
     var body: some View {
         VStack(spacing: 8) {
@@ -1114,6 +1186,7 @@ struct PlaybackActionRow: View {
                 Button("Resume", action: resume)
                 Button("Stop", action: stop)
                 Button("Copy URL", action: copyURL)
+                Button("Open in IINA", action: openInIINA)
             }
             .buttonStyle(.bordered)
         }

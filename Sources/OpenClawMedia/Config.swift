@@ -95,6 +95,19 @@ struct AppConfig: Codable, Equatable {
     var needsSetup: Bool {
         movieBaseURL.host?.contains("example") == true || musicBaseURL.host?.contains("example") == true
     }
+
+    var reloadIdentity: String {
+        [
+            movieBaseURL.absoluteString,
+            musicBaseURL.absoluteString,
+            iptvPlaylistURL?.absoluteString ?? "",
+            aiImageProviderBaseURL?.absoluteString ?? "",
+            aiImageProviderModel,
+            String(apiTimeoutSeconds),
+            String(preferHTTPS),
+            String(allowInsecureLocalhost)
+        ].joined(separator: "|")
+    }
 }
 
 enum ConfigLoader {
