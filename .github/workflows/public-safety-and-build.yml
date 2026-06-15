@@ -19,90 +19,43 @@ jobs:
         with:
           python-version: '3.x'
       - run: python3 scripts/public_safety_check.py
-      - run: python3 scripts/validate_source_config.py
-      - run: python3 scripts/validate_source_compat.py
-      - run: python3 scripts/validate_figma_ui.py
+      - run: python3 scripts/validate_medialib_structure.py
 
   macos-build:
     runs-on: macos-14
-    env:
-      APP_VERSION: 0.2.1
-      APP_BUILD: 3
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build Swift package
-        run: swift build -c release -v
+      - name: Install libmpv + ffmpeg (runtime deps bundled into the .app)
+        run: |
+          set -euo pipefail
+          brew update
+          brew install mpv ffmpeg
+          # mpv formula provides libmpv.*.dylib under the brew prefix
+          ls -l "$(brew --prefix)/lib/" | grep -i mpv || true
 
-      - name: Create unsigned .app bundle
+      - name: Build + package DMG
         shell: bash
         run: |
           set -euo pipefail
-          APP_NAME="OpenClaw Media"
-          BUNDLE_DIR="$PWD/build/${APP_NAME}.app"
-          CONTENTS="$BUNDLE_DIR/Contents"
-          MACOS="$CONTENTS/MacOS"
-          RESOURCES="$CONTENTS/Resources"
+          chmod +x scripts/medialib/package_dmg.sh
+          ./scripts/medialib/package_dmg.sh
 
-          rm -rf "$PWD/build"
-          mkdir -p "$MACOS" "$RESOURCES"
-          cp ".build/release/OpenClawMedia" "$MACOS/OpenClawMedia"
-          chmod +x "$MACOS/OpenClawMedia"
-          cp config.example.json "$RESOURCES/config.example.json"
-
-          cat > "$CONTENTS/Info.plist" <<PLIST
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>CFBundleExecutable</key>
-            <string>OpenClawMedia</string>
-            <key>CFBundleIdentifier</key>
-            <string>ai.nous.openclaw-media</string>
-            <key>CFBundleName</key>
-            <string>OpenClaw Media</string>
-            <key>CFBundleDisplayName</key>
-            <string>OpenClaw Media</string>
-            <key>CFBundlePackageType</key>
-            <string>APPL</string>
-            <key>CFBundleShortVersionString</key>
-            <string>${APP_VERSION}</string>
-            <key>CFBundleVersion</key>
-            <string>${APP_BUILD}</string>
-            <key>LSMinimumSystemVersion</key>
-            <string>13.0</string>
-            <key>NSHighResolutionCapable</key>
-            <true/>
-          </dict>
-          </plist>
-          PLIST
-
-          codesign --force --deep --sign - "$BUNDLE_DIR"
-          find "$BUNDLE_DIR" -maxdepth 3 -type f -print
-
-      - name: Package DMG
+      - name: Locate DMG
+        id: dmg
         shell: bash
         run: |
           set -euo pipefail
-          APP_NAME="OpenClaw Media"
-          DMG_DIR="$PWD/build/dmg-root"
-          mkdir -p "$DMG_DIR"
-          cp -R "$PWD/build/${APP_NAME}.app" "$DMG_DIR/"
-          ln -s /Applications "$DMG_DIR/Applications"
-          hdiutil create \
-            -volname "$APP_NAME" \
-            -srcfolder "$DMG_DIR" \
-            -ov \
-            -format UDZO \
-            "$PWD/build/OpenClaw-Media-macOS.dmg"
-          hdiutil verify "$PWD/build/OpenClaw-Media-macOS.dmg"
-          ls -lh "$PWD/build/OpenClaw-Media-macOS.dmg"
+          DMG_PATH="dist/MediaLib.dmg"
+          test -f "$DMG_PATH"
+          ls -lh "$DMG_PATH"
+          echo "path=$DMG_PATH" >> "$GITHUB_OUTPUT"
 
       - name: Upload DMG artifact
         uses: actions/upload-artifact@v4
         with:
-          name: OpenClaw-Media-macOS-dmg
-          path: build/OpenClaw-Media-macOS.dmg
+          name: MediaLib-macOS-dmg
+          path: ${{ steps.dmg.outputs.path }}
           if-no-files-found: error
 
       - name: Publish latest release DMG
@@ -112,7 +65,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          NOTES="Latest unsigned macOS DMG built from ${GITHUB_SHA}. Open the DMG and drag OpenClaw Media to Applications."
-          gh release view latest >/dev/null 2>&1 || gh release create latest --title "OpenClaw Media latest" --notes "$NOTES"
-          gh release edit latest --title "OpenClaw Media latest" --notes "$NOTES" --latest
-          gh release upload latest build/OpenClaw-Media-macOS.dmg --clobber
+          NOTES="Latest unsigned macOS DMG built from ${GITHUB_SHA}. Open the DMG and drag MediaLIB to Applications. Requires libmpv at runtime; it is bundled into the .app."
+          gh release view latest >/dev/null 2>&1 || gh release create latest --title "MediaLib latest" --notes "$NOTES"
+          gh release edit latest --title "MediaLib latest" --notes "$NOTES" --latest
+          gh release upload latest "${{ steps.dmg.outputs.path }}" --clobber
