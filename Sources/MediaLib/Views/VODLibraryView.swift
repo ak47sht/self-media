@@ -179,7 +179,9 @@ struct VODLibraryView: View {
                             .onAppear {
                                 // 滚动到倒数第5个时触发加载更多
                                 // 用 videos 数组避免重复计算 displayVideos（会触发布局死循环）
-                                if let idx = videos.firstIndex(where: { $0.id == video.id }),
+                                // 只在没有弹出 sheet 时才触发加载更多，避免 sheet 弹出时布局重算触发无限递归
+                                if !showingVideoDetail,
+                                   let idx = videos.firstIndex(where: { $0.id == video.id }),
                                    idx >= videos.count - 5 {
                                     loadMoreIfNeeded()
                                 }
@@ -210,6 +212,12 @@ struct VODLibraryView: View {
                 }
             }
         }
+        .sheet(isPresented: $showingVideoDetail) {
+            if let video = selectedVideo {
+                VODDetailView(video: video, source: source)
+                    .environmentObject(appState)
+            }
+        }
         .navigationTitle(source.name)
         .onAppear {
             if categories.isEmpty {
@@ -226,12 +234,6 @@ struct VODLibraryView: View {
             currentPage = 1
             hasMorePages = true
             loadVideos(page: 1)
-        }
-        .sheet(isPresented: $showingVideoDetail) {
-            if let video = selectedVideo {
-                VODDetailView(video: video, source: source)
-                    .environmentObject(appState)
-            }
         }
     }
     
