@@ -16,7 +16,8 @@ enum MediaItemFactory {
         print("🎬 [MediaItemFactory] IPTV 播放创建:")
         print("   频道: \(channel.name)")
         print("   URL: \(playURL)")
-        print("   URL 类型: \(playURL.hasPrefix("http") ? "HTTP" : playURL.hasPrefix("rtmp") ? "RTMP" : "其他")")
+        let urlType = playURL.hasPrefix("http") ? "HTTP" : playURL.hasPrefix("rtmp") ? "RTMP" : "其他"
+        print("   URL 类型: \(urlType)")
         
         return MediaItem(
             id: "\(channel.sourceID)_\(channel.channelID)_\(urlIndex)",
@@ -75,7 +76,8 @@ enum MediaItemFactory {
         print("   剧集: \(episode.name)")
         print("   URL: \(episode.url)")
         print("   URL 长度: \(episode.url.count) 字符")
-        print("   URL 类型: \(episode.url.hasPrefix("http") ? "HTTP" : episode.url.hasPrefix("rtmp") ? "RTMP" : "其他")")
+        let vodURLType = episode.url.hasPrefix("http") ? "HTTP" : episode.url.hasPrefix("rtmp") ? "RTMP" : "其他"
+        print("   URL 类型: \(vodURLType)")
         
         return MediaItem(
             id: "\(video.sourceID)_\(video.vodID)_\(episode.name)",
