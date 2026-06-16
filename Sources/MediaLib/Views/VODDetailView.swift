@@ -13,8 +13,8 @@ struct VODDetailView: View {
     private let episodesPerPage = 50
     
     var body: some View {
-        NSLog("[MEDIALIB] 🚀 VODDetailView.body 开始构建: %@", video.name)
-        DebugLog.log("VODDetailView", "🚀 body 开始构建，video=\(video.name)")
+        let _ = NSLog("[MEDIALIB] 🚀 VODDetailView.body 开始构建: %@", video.name)
+        let _ = DebugLog.log("VODDetailView", "🚀 body 开始构建，video=\(video.name)")
         // 编译时版本标记（用于确认部署版本）
         let _ = DebugLog.log("VODDetailView", "🔖 编译版本: 84ebfc1 (移除所有body内计算属性)")
         

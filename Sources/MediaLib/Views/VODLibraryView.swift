@@ -219,16 +219,16 @@ struct VODLibraryView: View {
             }
         }
         .sheet(isPresented: $showingVideoDetail) {
-            NSLog("[MEDIALIB] 📄 sheet 闭包被触发")
-            DebugLog.log("VODLibraryView", "📄 sheet 闭包被触发")
+            let _ = NSLog("[MEDIALIB] 📄 sheet 闭包被触发")
+            let _ = DebugLog.log("VODLibraryView", "📄 sheet 闭包被触发")
             if let video = selectedVideo {
-                NSLog("[MEDIALIB] 🎬 准备构建 VODDetailView for %@", video.name)
-                DebugLog.log("VODLibraryView", "🎬 准备构建 VODDetailView for \(video.name)")
+                let _ = NSLog("[MEDIALIB] 🎬 准备构建 VODDetailView for %@", video.name)
+                let _ = DebugLog.log("VODLibraryView", "🎬 准备构建 VODDetailView for \(video.name)")
                 VODDetailView(video: video, source: source)
                     .environmentObject(appState)
             } else {
-                NSLog("[MEDIALIB] ⚠️ selectedVideo 为 nil")
-                DebugLog.log("VODLibraryView", "⚠️ selectedVideo 为 nil！")
+                let _ = NSLog("[MEDIALIB] ⚠️ selectedVideo 为 nil")
+                let _ = DebugLog.log("VODLibraryView", "⚠️ selectedVideo 为 nil！")
             }
         }
         .navigationTitle(source.name)
