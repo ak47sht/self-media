@@ -797,6 +797,9 @@ final class AppState: ObservableObject {
                 break
             }
             base = musicTracks(inSmart: playlist)
+        case .vod, .iptv:
+            // VOD/IPTV 有自己的 API，不使用 MediaItem 列表
+            base = []
         }
 
         guard !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return base }
@@ -4292,6 +4295,8 @@ final class AppState: ObservableObject {
             scanLocalSources(mediaTypes: Self.videoScanTypes, emptyMessage: "当前集合没有可扫描的本地视频媒体源。")
         case .musicSmartPlaylist:
             scanLocalSources(mediaTypes: [.music], emptyMessage: "当前智能歌单没有可扫描的音乐媒体源。")
+        case .vod, .iptv:
+            alert = AppAlert(title: "无需扫描", message: "VOD/IPTV 资源通过在线 API 获取，无需扫描。")
         case .video(let section):
             scanLocalSources(mediaTypes: mediaTypes(for: section), emptyMessage: "当前分类没有可扫描的媒体源。")
         }
