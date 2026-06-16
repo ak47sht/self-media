@@ -5,15 +5,9 @@ import os
 /// 通过环境变量 MEDIALIB_DEBUG=1 启用日志输出
 /// 日志输出到系统日志（Console.app 可查看）
 enum DebugLog {
-    /// 是否启用调试日志（通过环境变量或编译标志控制）
+    /// 是否启用调试日志（始终开启，通过 MEDIALIB_DEBUG=0 关闭）
     static var enabled: Bool {
-        #if DEBUG
-        // Debug 构建默认开启，可通过环境变量关闭
         return ProcessInfo.processInfo.environment["MEDIALIB_DEBUG"] != "0"
-        #else
-        // Release 构建默认关闭，可通过环境变量开启
-        return ProcessInfo.processInfo.environment["MEDIALIB_DEBUG"] == "1"
-        #endif
     }
     
     // 使用 os.Logger 以便在 Console.app 中可见
