@@ -13,7 +13,7 @@ struct VODDetailView: View {
     private let episodesPerPage = 50
     
     var body: some View {
-        let _ = print("[VODDetailView.body] 开始构建，video=\(video.name) \(Date().timeIntervalSince1970)")
+        DebugLog.log("VODDetailView", "🚀 body 开始构建，video=\(video.name)")
         // 编译时版本标记（用于确认部署版本）
         let _ = DebugLog.log("VODDetailView", "🔖 编译版本: 84ebfc1 (移除所有body内计算属性)")
         
