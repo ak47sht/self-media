@@ -3295,7 +3295,7 @@ final class AppState: ObservableObject {
     }
     
     private func fetchIPTVChannels(for source: MediaSource) async {
-        guard let db = appDatabase else { return }
+        guard let db = database else { return }
         let service = IPTVService(db: db)
         
         do {

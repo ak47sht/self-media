@@ -47,15 +47,15 @@ public class IPTVService {
             """,
             bindings: [.text(sourceID)]
         ) { rs in
-            guard let channelID = rs.string(at: 0),
-                  let name = rs.string(at: 1) else {
+            guard let channelID = rs.string(0),
+                  let name = rs.string(1) else {
                 return nil
             }
             
-            let groupTitle = rs.string(at: 2)
-            let logo = rs.string(at: 3)
-            let urlsJSON = rs.string(at: 4) ?? "[]"
-            let updatedAtString = rs.string(at: 5)
+            let groupTitle = rs.string(2)
+            let logo = rs.string(3)
+            let urlsJSON = rs.string(4) ?? "[]"
+            let updatedAtString = rs.string(5)
             
             // 解析 URLs JSON
             let urls: [String]
