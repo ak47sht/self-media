@@ -1401,6 +1401,7 @@ struct SourceRowView: View {
                     sourceRowContent(isLockedPrivateSource: isLockedPrivateSource, isReachable: isReachable)
                 }
                 .buttonStyle(.plain)
+                .isDetailLink(false)
             } else if source.sourceKind == .vod {
                 NavigationLink {
                     VODLibraryView(source: source)
@@ -1409,6 +1410,7 @@ struct SourceRowView: View {
                     sourceRowContent(isLockedPrivateSource: isLockedPrivateSource, isReachable: isReachable)
                 }
                 .buttonStyle(.plain)
+                .isDetailLink(false)
             } else {
                 sourceRowContent(isLockedPrivateSource: isLockedPrivateSource, isReachable: isReachable)
             }
