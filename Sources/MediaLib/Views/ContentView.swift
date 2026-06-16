@@ -704,7 +704,7 @@ struct ContentView: View {
     }
 
     private var navigationRoot: some View {
-        // 预计算 source 查找，避免在 detailView 内触发布局死循环
+        // 预计算所有 detailView 需要的 appState 查找，避免在 detailView 内触发布局死循环
         let vodSource: MediaSource? = {
             if case .vod(let sourceID) = selection {
                 return appState.sources.first(where: { $0.id == sourceID })
@@ -714,6 +714,13 @@ struct ContentView: View {
         let iptvSource: MediaSource? = {
             if case .iptv(let sourceID) = selection {
                 return appState.sources.first(where: { $0.id == sourceID })
+            }
+            return nil
+        }()
+        let canDisplayPrivateItems = appState.canDisplayPrivateItems
+        let musicSmartPlaylist: MusicSmartPlaylist? = {
+            if case .musicSmartPlaylist(let playlistID) = selection {
+                return appState.musicSmartPlaylist(id: playlistID)
             }
             return nil
         }()
@@ -867,7 +874,7 @@ struct ContentView: View {
                         sourceSystemImage: destination.systemImage
                     )
                 } else {
-                    detailView(for: selection ?? .home, vodSource: vodSource, iptvSource: iptvSource)
+                    detailView(for: selection ?? .home, vodSource: vodSource, iptvSource: iptvSource, canDisplayPrivateItems: canDisplayPrivateItems, musicSmartPlaylist: musicSmartPlaylist)
                 }
             }
         }
@@ -1400,7 +1407,7 @@ struct ContentView: View {
     }
 
     @ViewBuilder
-    private func detailView(for destination: SidebarDestination, vodSource: MediaSource?, iptvSource: MediaSource?) -> some View {
+    private func detailView(for destination: SidebarDestination, vodSource: MediaSource?, iptvSource: MediaSource?, canDisplayPrivateItems: Bool, musicSmartPlaylist: MusicSmartPlaylist?) -> some View {
         let _ = print("[detailView] destination=\(destination) \(Date().timeIntervalSince1970)")
         switch destination {
         case .home:
@@ -1413,7 +1420,7 @@ struct ContentView: View {
                 }
             )
         case .video(.privacy):
-            if appState.canDisplayPrivateItems {
+            if canDisplayPrivateItems {
                 LibraryView(destination: destination)
             } else {
                 PrivacyLockView()
@@ -1425,7 +1432,7 @@ struct ContentView: View {
                 musicSmartPlaylistEditor = .create()
             }
         case .musicSmartPlaylist(let playlistID):
-            if let playlist = appState.musicSmartPlaylist(id: playlistID) {
+            if let playlist = musicSmartPlaylist {
                 MusicSmartPlaylistDetailView(playlist: playlist) {
                     musicSmartPlaylistEditor = .edit(playlist)
                 }

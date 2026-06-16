@@ -8,6 +8,9 @@ struct VideoItemContextMenuItems: View {
     var currentManualCollectionID: String?
 
     var body: some View {
+        // 预计算，避免 body 内触发 appState.items 查找
+        let deletionTarget = playbackHistoryDeletionTarget
+        
         if item.type != .episode {
             Button {
                 appState.play(item)
@@ -28,12 +31,12 @@ struct VideoItemContextMenuItems: View {
             }
         }
 
-        if let deletionTarget = playbackHistoryDeletionTarget {
+        if let target = deletionTarget {
             Button(role: .destructive) {
-                appState.clearPlaybackHistory(deletionTarget)
+                appState.clearPlaybackHistory(target)
             } label: {
                 Label(
-                    deletionTarget.id == item.id ? "删除播放记录" : "删除本系列播放记录",
+                    target.id == item.id ? "删除播放记录" : "删除本系列播放记录",
                     systemImage: "clock.badge.xmark"
                 )
             }
