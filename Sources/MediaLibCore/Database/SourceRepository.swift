@@ -15,8 +15,8 @@ public final class SourceRepository {
               ignore_hidden_files, read_nfo, prefer_local_artwork, network_scraping_enabled,
               screenshot_fallback_enabled, include_in_metadata_fetch, prefer_metadata_write_to_source,
               include_in_health_check, remote_trace_sync_mode, selected_emby_library_ids,
-              created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              online_config, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
               name = excluded.name,
               path = excluded.path,
@@ -34,6 +34,7 @@ public final class SourceRepository {
               include_in_health_check = excluded.include_in_health_check,
               remote_trace_sync_mode = excluded.remote_trace_sync_mode,
               selected_emby_library_ids = excluded.selected_emby_library_ids,
+              online_config = excluded.online_config,
               updated_at = excluded.updated_at
             """,
             bindings: bindings(for: source)
@@ -51,7 +52,7 @@ public final class SourceRepository {
                    ignore_hidden_files, read_nfo, prefer_local_artwork, network_scraping_enabled,
                    screenshot_fallback_enabled, include_in_metadata_fetch, prefer_metadata_write_to_source,
                    include_in_health_check, remote_trace_sync_mode, selected_emby_library_ids,
-                   created_at, updated_at
+                   online_config, created_at, updated_at
             FROM media_sources
             ORDER BY created_at ASC
             """
@@ -74,8 +75,9 @@ public final class SourceRepository {
                 includeInHealthCheck: row.bool(14),
                 remoteTraceSyncMode: RemoteTraceSyncMode(rawValue: row.string(15) ?? "") ?? .bidirectional,
                 selectedEmbyLibraryIDs: Self.decodeEmbyLibraryIDs(row.string(16)),
-                createdAt: row.date(17) ?? Date(),
-                updatedAt: row.date(18) ?? Date()
+                onlineConfig: Self.decodeOnlineConfig(row.string(17)),
+                createdAt: row.date(18) ?? Date(),
+                updatedAt: row.date(19) ?? Date()
             )
         }
     }
@@ -99,6 +101,7 @@ public final class SourceRepository {
             .bool(source.includeInHealthCheck),
             .text(source.remoteTraceSyncMode.rawValue),
             Self.encodeEmbyLibraryIDs(source.selectedEmbyLibraryIDs),
+            Self.encodeOnlineConfig(source.onlineConfig),
             .optionalDate(source.createdAt),
             .optionalDate(source.updatedAt)
         ]
@@ -129,5 +132,21 @@ public final class SourceRepository {
             .split { $0 == "\n" || $0 == "," }
             .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
+    }
+
+    private static func encodeOnlineConfig(_ config: OnlineSourceConfig?) -> SQLiteValue {
+        guard let config else { return .null }
+        guard let data = try? JSONEncoder().encode(config),
+              let value = String(data: data, encoding: .utf8) else {
+            return .null
+        }
+        return .text(value)
+    }
+
+    private static func decodeOnlineConfig(_ value: String?) -> OnlineSourceConfig? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty,
+              let data = value.data(using: .utf8) else { return nil }
+        return try? JSONDecoder().decode(OnlineSourceConfig.self, from: data)
     }
 }

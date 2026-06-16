@@ -359,116 +359,107 @@ struct MusicLibraryView: View {
     @State private var contentRefreshTask: Task<Void, Never>?
     @State private var searchRefreshTask: Task<Void, Never>?
     @State private var lyricsRefreshTask: Task<Void, Never>?
-
+    @State private var showingOnlineSearch = false
+    @State private var onlineSearchResults: [OnlineMusicService.Song] = []
+    
+    @MainActor
+    private static func playOnlineSong(_ song: OnlineMusicService.Song, appState: AppState) async {
+        let onlineSources = appState.sources.filter { $0.sourceKind == .onlineMusic }
+        guard !onlineSources.isEmpty else {
+            appState.alert = AppAlert(title: "无可用的在线音乐源", message: "请先添加在线音乐源。")
+            return
+        }
+        
+        var neteaseAPI: String?
+        var gdstudioAPI: String?
+        
+        for source in onlineSources {
+            guard let config = source.onlineConfig else { continue }
+            switch config.kind {
+            case .onlineMusicNetease:
+                neteaseAPI = config.apiBase
+            case .onlineMusicGDStudio:
+                gdstudioAPI = config.apiBase
+            default:
+                break
+            }
+        }
+        
+        do {
+            let service = OnlineMusicService()
+            guard let result = try await service.playURL(song: song, neteaseAPI: neteaseAPI, gdstudioAPI: gdstudioAPI) else {
+                appState.alert = AppAlert(title: "获取播放地址失败", message: "无法获取歌曲播放链接，请检查在线音乐源配置。")
+                return
+            }
+            
+            let tempItem = MediaItem(
+                id: song.id,
+                type: .music,
+                title: song.name,
+                artist: song.artist,
+                album: song.album,
+                sourcePath: onlineSources.first?.path,
+                filePath: result.url
+            )
+            
+            appState.play(tempItem)
+        } catch {
+            appState.showError("获取播放地址失败", error)
+        }
+    }
+    
     var body: some View {
-        Group {
-            if usesStandaloneLongList {
-                standaloneLongListBody
-            } else {
-                scrollingBody
+        bodyWithLifecycle
+            .sheet(item: $metadataItem) { item in
+                MetadataSearchView(item: item)
+                    .environmentObject(appState)
             }
-        }
-        .suppressListHighlight()
-        .background(AppPageBackground())
-        .navigationTitle(section.title)
-        .onAppear {
-            loadViewState(for: section)
-            refreshVisibleContent(for: section)
-            presentSectionTipIfNeeded(section)
-        }
-        .onChange(of: searchText) { _ in
-            drilldown = nil
-            scheduleSearchRefresh()
-        }
-        .onChange(of: section.id) { newSectionID in
-            guard let newSection = MusicLibrarySection(rawValue: newSectionID) else { return }
-            searchRefreshTask?.cancel()
-            lyricsRefreshTask?.cancel()
-            drilldown = nil
-            loadViewState(for: newSection, reset: true)
-            refreshVisibleContent(for: newSection, deferred: true)
-            presentSectionTipIfNeeded(newSection)
-        }
-        .onChange(of: sortMode) { _ in
-            saveViewState(for: section)
-            searchRefreshTask?.cancel()
-            drilldown = nil
-            refreshVisibleContent(for: section, deferred: true)
-        }
-        .onChange(of: sortOrder) { _ in
-            saveViewState(for: section)
-            searchRefreshTask?.cancel()
-            drilldown = nil
-            refreshVisibleContent(for: section, deferred: true)
-        }
-        .onChange(of: filterMode) { _ in
-            saveViewState(for: section)
-            searchRefreshTask?.cancel()
-            drilldown = nil
-            refreshVisibleContent(for: section, deferred: true)
-        }
-        .onChange(of: appState.libraryRevision) { _ in
-            searchRefreshTask?.cancel()
-            if drilldown == nil {
-                refreshVisibleContent(for: section, deferred: true)
-            } else {
-                refreshActivePlaylistDrilldown()
-            }
-        }
-        .onChange(of: appState.favoriteRevision) { _ in
-            // Refresh only when viewing the favorites filter or the favorites drilldown.
-            if filterMode == .favorites || section == .favorites {
-                searchRefreshTask?.cancel()
-                if drilldown == nil {
-                    refreshVisibleContent(for: section, deferred: true)
-                } else {
-                    refreshActivePlaylistDrilldown()
-                }
-            }
-        }
-        .onDisappear {
-            contentRefreshTask?.cancel()
-            searchRefreshTask?.cancel()
-            lyricsRefreshTask?.cancel()
-        }
-        .sheet(item: $metadataItem) { item in
-            MetadataSearchView(item: item)
-                .environmentObject(appState)
-        }
-        .sheet(item: $playlistCreationRequest) { request in
-            MusicPlaylistCreationSheet(
-                request: request,
-                onCreate: { name in
-                    appState.createMusicPlaylist(name: name, tracks: request.tracks)
-                    playlistCreationRequest = nil
-                },
-                onCancel: {
-                    playlistCreationRequest = nil
-                }
-            )
-            .environmentObject(appState)
-        }
-        .sheet(item: $playlistRenameRequest) { request in
-            MusicPlaylistRenameSheet(
-                request: request,
-                onRename: { name in
-                    appState.renameMusicPlaylist(request.playlist, name: name)
-                    if let updated = appState.musicPlaylists.first(where: { $0.id == request.playlist.id }) {
-                        drilldown = .playlist(updated, appState.musicTracks(in: updated))
+            .sheet(item: $playlistCreationRequest) { request in
+                MusicPlaylistCreationSheet(
+                    request: request,
+                    onCreate: { name in
+                        appState.createMusicPlaylist(name: name, tracks: request.tracks)
+                        playlistCreationRequest = nil
+                    },
+                    onCancel: {
+                        playlistCreationRequest = nil
                     }
-                    playlistRenameRequest = nil
-                },
-                onCancel: {
-                    playlistRenameRequest = nil
-                }
-            )
-            .environmentObject(appState)
-        }
-        .confirmationDialog(
-            "删除歌单？",
-            isPresented: $isConfirmingPlaylistDeletion,
-            presenting: playlistPendingDeletion
-        ) { playlist in
+                )
+                .environmentObject(appState)
+            }
+            .sheet(item: $playlistRenameRequest) { request in
+                MusicPlaylistRenameSheet(
+                    request: request,
+                    onRename: { name in
+                        appState.renameMusicPlaylist(request.playlist, name: name)
+                        if let updated = appState.musicPlaylists.first(where: { $0.id == request.playlist.id }) {
+                            drilldown = .playlist(updated, appState.musicTracks(in: updated))
+                        }
+                        playlistRenameRequest = nil
+                    },
+                    onCancel: {
+                        playlistRenameRequest = nil
+                    }
+                )
+                .environmentObject(appState)
+            }
+            .sheet(isPresented: $showingOnlineSearch) {
+                OnlineMusicSearchSheet(
+                    onPlay: { [weak appState] song in
+                        showingOnlineSearch = false
+                        guard let appState else { return }
+                        Task {
+                            await Self.playOnlineSong(song, appState: appState)
+                        }
+                    }
+                )
+                .environmentObject(appState)
+            }
+            .confirmationDialog(
+                "删除歌单？",
+                isPresented: $isConfirmingPlaylistDeletion,
+                presenting: playlistPendingDeletion
+            ) { playlist in
             Button("删除“\(playlist.name)”", role: .destructive) {
                 appState.deleteMusicPlaylist(playlist)
                 if case .playlist(let activePlaylist, _) = drilldown,
@@ -487,7 +478,83 @@ struct MusicLibraryView: View {
             refreshActivePlaylistDrilldown()
         }
     }
-
+    
+    private var contentBody: some View {
+        Group {
+            if usesStandaloneLongList {
+                standaloneLongListBody
+            } else {
+                scrollingBody
+            }
+        }
+    }
+    
+    private var bodyWithLifecycle: some View {
+        contentBody
+            .suppressListHighlight()
+            .background(AppPageBackground())
+            .navigationTitle(section.title)
+            .onAppear {
+                loadViewState(for: section)
+                refreshVisibleContent(for: section)
+                presentSectionTipIfNeeded(section)
+            }
+            .onChange(of: searchText) { _ in
+                drilldown = nil
+                scheduleSearchRefresh()
+            }
+            .onChange(of: section.id) { newSectionID in
+                guard let newSection = MusicLibrarySection(rawValue: newSectionID) else { return }
+                searchRefreshTask?.cancel()
+                lyricsRefreshTask?.cancel()
+                drilldown = nil
+                loadViewState(for: newSection, reset: true)
+                refreshVisibleContent(for: newSection, deferred: true)
+                presentSectionTipIfNeeded(newSection)
+            }
+            .onChange(of: sortMode) { _ in
+                saveViewState(for: section)
+                searchRefreshTask?.cancel()
+                drilldown = nil
+                refreshVisibleContent(for: section, deferred: true)
+            }
+            .onChange(of: sortOrder) { _ in
+                saveViewState(for: section)
+                searchRefreshTask?.cancel()
+                drilldown = nil
+                refreshVisibleContent(for: section, deferred: true)
+            }
+            .onChange(of: filterMode) { _ in
+                saveViewState(for: section)
+                searchRefreshTask?.cancel()
+                drilldown = nil
+                refreshVisibleContent(for: section, deferred: true)
+            }
+            .onChange(of: appState.libraryRevision) { _ in
+                searchRefreshTask?.cancel()
+                if drilldown == nil {
+                    refreshVisibleContent(for: section, deferred: true)
+                } else {
+                    refreshActivePlaylistDrilldown()
+                }
+            }
+            .onChange(of: appState.favoriteRevision) { _ in
+                if filterMode == .favorites || section == .favorites {
+                    searchRefreshTask?.cancel()
+                    if drilldown == nil {
+                        refreshVisibleContent(for: section, deferred: true)
+                    } else {
+                        refreshActivePlaylistDrilldown()
+                    }
+                }
+            }
+            .onDisappear {
+                contentRefreshTask?.cancel()
+                searchRefreshTask?.cancel()
+                lyricsRefreshTask?.cancel()
+            }
+    }
+    
     private func presentSectionTipIfNeeded(_ targetSection: MusicLibrarySection) {
         guard targetSection == .songs else { return }
         appState.showInterfaceTipOnce(
@@ -560,6 +627,13 @@ struct MusicLibraryView: View {
                 }
                 .buttonStyle(LiquidGlassButtonStyle(cornerRadius: 13, horizontalPadding: 12, minHeight: 34, prominent: true))
             } else {
+                Button {
+                    showingOnlineSearch = true
+                } label: {
+                    Label("在线搜索", systemImage: "magnifyingglass.circle")
+                }
+                .disabled(appState.sources.filter { $0.sourceKind == .onlineMusic }.isEmpty)
+                
                 Button {
                     appState.scanSources(for: .music(section))
                 } label: {
@@ -2403,5 +2477,200 @@ struct MusicSmartPlaylistDetailView: View {
                 onCreatePlaylist: { playlistCreationRequest = $0 }
             )
         }
+    }
+    
+}
+
+// MARK: - Online Music Search Sheet
+
+private struct OnlineMusicSearchSheet: View {
+    @EnvironmentObject private var appState: AppState
+    @Environment(\.dismiss) private var dismiss
+    @State private var searchText = ""
+    @State private var searchResults: [OnlineMusicService.Song] = []
+    @State private var isSearching = false
+    let onPlay: (OnlineMusicService.Song) -> Void
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            AppSheetHeader(
+                title: "在线搜索",
+                subtitle: "搜索并播放在线音乐",
+                systemImage: "magnifyingglass.circle"
+            )
+            
+            HStack(spacing: 12) {
+                TextField("输入歌曲名或歌手", text: $searchText)
+                    .textFieldStyle(.plain)
+                    .padding(10)
+                    .background(Color.primary.opacity(0.06))
+                    .cornerRadius(10)
+                    .onSubmit {
+                        performSearch()
+                    }
+                
+                Button {
+                    performSearch()
+                } label: {
+                    Label(isSearching ? "搜索中" : "搜索", systemImage: "magnifyingglass")
+                }
+                .buttonStyle(LiquidGlassButtonStyle(cornerRadius: 10, horizontalPadding: 14, minHeight: 38, prominent: true))
+                .disabled(searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSearching)
+            }
+            
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 10) {
+                    if searchResults.isEmpty && !isSearching {
+                        EmptyStateView(
+                            title: searchText.isEmpty ? "输入关键词开始搜索" : "无结果",
+                            systemImage: "music.note.list",
+                            message: searchText.isEmpty ? "" : "换个关键词试试"
+                        )
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 60)
+                    } else {
+                        ForEach(searchResults) { result in
+                            OnlineMusicResultRow(song: result, onPlay: onPlay)
+                        }
+                    }
+                }
+            }
+            .frame(maxHeight: 400)
+            
+            AppSheetActionFooter {
+                Button("关闭", role: .cancel) {
+                    dismiss()
+                }
+                .buttonStyle(LiquidGlassButtonStyle(cornerRadius: 12, horizontalPadding: 14, minHeight: 32))
+            }
+        }
+        .padding(.horizontal, 2)
+        .appSheetChrome(width: AppSheetMetrics.wideWidth, maxHeight: 600)
+    }
+    
+    private func performSearch() {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return }
+        
+        isSearching = true
+        
+        Task {
+            defer { 
+                Task { @MainActor in
+                    isSearching = false
+                }
+            }
+            
+            // Extract API endpoints from online music sources
+            let onlineSources = appState.sources.filter { $0.sourceKind == .onlineMusic }
+            guard !onlineSources.isEmpty else {
+                await MainActor.run {
+                    appState.alert = AppAlert(title: "无可用的在线音乐源", message: "请先添加在线音乐源。")
+                }
+                return
+            }
+            
+            var neteaseAPI: String?
+            var gdstudioAPI: String?
+            
+            for source in onlineSources {
+                guard let config = source.onlineConfig else { continue }
+                switch config.kind {
+                case .onlineMusicNetease:
+                    neteaseAPI = config.apiBase
+                case .onlineMusicGDStudio:
+                    gdstudioAPI = config.apiBase
+                default:
+                    break
+                }
+            }
+            
+            do {
+                let service = OnlineMusicService()
+                if let result = try await service.search(query: query, neteaseAPI: neteaseAPI, gdstudioAPI: gdstudioAPI) {
+                    await MainActor.run {
+                        searchResults = result.songs
+                    }
+                } else {
+                    await MainActor.run {
+                        searchResults = []
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    appState.showError("搜索失败", error)
+                }
+            }
+        }
+    }
+}
+
+private struct OnlineMusicResultRow: View {
+    let song: OnlineMusicService.Song
+    let onPlay: (OnlineMusicService.Song) -> Void
+    @State private var isHovering = false
+    
+    var body: some View {
+        Button {
+            onPlay(song)
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "music.note")
+                    .font(.title3)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 40, height: 40)
+                    .background(Color.primary.opacity(0.06))
+                    .cornerRadius(8)
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(song.name)
+                        .font(.callout.weight(.medium))
+                        .lineLimit(1)
+                    
+                    HStack(spacing: 6) {
+                        Text(song.displayArtist)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        
+                        if let album = song.album, !album.isEmpty {
+                            Text("·")
+                                .foregroundStyle(.secondary.opacity(0.5))
+                            Text(album)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        
+                        if let duration = song.duration {
+                            Text("·")
+                                .foregroundStyle(.secondary.opacity(0.5))
+                            Text(formatDuration(duration))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .lineLimit(1)
+                }
+                
+                Spacer(minLength: 0)
+                
+                Image(systemName: "play.circle.fill")
+                    .font(.title2)
+                    .foregroundStyle(isHovering ? .primary : .secondary)
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(isHovering ? Color.primary.opacity(0.06) : Color.clear)
+            .cornerRadius(10)
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            isHovering = hovering
+        }
+    }
+    
+    private func formatDuration(_ seconds: Int) -> String {
+        let minutes = seconds / 60
+        let secs = seconds % 60
+        return String(format: "%d:%02d", minutes, secs)
     }
 }

@@ -2,7 +2,7 @@ import Foundation
 import SQLite3
 
 public final class DatabaseManager {
-    public static let currentSchemaVersion = 18
+    public static let currentSchemaVersion = 19
 
     private var db: OpaquePointer?
     private let queue = DispatchQueue(label: "MediaLib.DatabaseManager")
@@ -321,6 +321,13 @@ public final class DatabaseManager {
                 try execute("PRAGMA user_version = 18")
             }
             version = 18
+        }
+        if version < 19 {
+            try transaction {
+                try migrateToVersion19()
+                try execute("PRAGMA user_version = 19")
+            }
+            version = 19
         }
         guard version == Self.currentSchemaVersion else {
             throw DatabaseError.incompatibleSchema(found: version, supported: Self.currentSchemaVersion)
@@ -769,6 +776,28 @@ public final class DatabaseManager {
         try execute("CREATE INDEX IF NOT EXISTS index_sync_conflicts_status ON sync_conflicts(status, updated_at)")
         try execute("CREATE INDEX IF NOT EXISTS index_sync_conflicts_media ON sync_conflicts(media_id, provider, field_name)")
         try execute("CREATE INDEX IF NOT EXISTS index_sync_conflicts_account ON sync_conflicts(account_id)")
+    }
+
+    private func migrateToVersion19() throws {
+        // Add online_config column for online sources (IPTV / VOD / OnlineMusic)
+        try execute("ALTER TABLE media_sources ADD COLUMN online_config TEXT")
+        
+        // IPTV channels cache table
+        try execute("""
+        CREATE TABLE IF NOT EXISTS iptv_channels_cache (
+          source_id TEXT NOT NULL,
+          channel_id TEXT NOT NULL,
+          name TEXT NOT NULL,
+          group_title TEXT,
+          logo TEXT,
+          urls_json TEXT NOT NULL,
+          updated_at TEXT,
+          PRIMARY KEY(source_id, channel_id),
+          FOREIGN KEY(source_id) REFERENCES media_sources(id) ON DELETE CASCADE
+        )
+        """)
+        try execute("CREATE INDEX IF NOT EXISTS index_iptv_channels_source ON iptv_channels_cache(source_id)")
+        try execute("CREATE INDEX IF NOT EXISTS index_iptv_channels_group ON iptv_channels_cache(group_title)")
     }
 
     private func validateBackup(at backupURL: URL) throws {

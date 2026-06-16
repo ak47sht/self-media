@@ -112,6 +112,11 @@ private struct AddMediaSourceWizardSheet: View {
     @State private var includeInHealthCheck = true
     @State private var preferMetadataWriteToSource = false
     @State private var remoteTraceSyncMode: RemoteTraceSyncMode = .bidirectional
+    
+    // Online music source fields
+    @State private var onlineMusicProvider: OnlineMusicProvider = .netease
+    @State private var onlineMusicName = ""
+    @State private var onlineMusicBaseURL = ""
 
     private let columns = [GridItem(.adaptive(minimum: 188), spacing: 10)]
     private let mediaTypes: [MediaType] = [
@@ -216,6 +221,8 @@ private struct AddMediaSourceWizardSheet: View {
                 networkConfiguration
             case .emby, .jellyfin, .plex:
                 remoteConfiguration
+            case .onlineMusic:
+                onlineMusicConfiguration
             }
         case .settings:
             wizardSettings
@@ -352,6 +359,34 @@ private struct AddMediaSourceWizardSheet: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
+    
+    private var onlineMusicConfiguration: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            sectionTitle("音乐提供商")
+            
+            Picker("提供商", selection: $onlineMusicProvider) {
+                Text("网易云音乐").tag(OnlineMusicProvider.netease)
+                Text("GD Studio").tag(OnlineMusicProvider.gdstudio)
+                Text("自定义 API").tag(OnlineMusicProvider.custom)
+            }
+            .pickerStyle(.segmented)
+            
+            sectionTitle("源名称")
+            TextField("为此音乐源命名（如：网易云）", text: $onlineMusicName)
+                .glassFormField()
+            
+            if onlineMusicProvider == .custom {
+                sectionTitle("API 地址")
+                TextField("https://your-api.example.com", text: $onlineMusicBaseURL)
+                    .glassFormField()
+                
+                AppInfoNote(text: "自定义 API 需实现网易云兼容的搜索、播放地址和歌词接口。", systemImage: "network")
+            } else {
+                AppInfoNote(text: onlineMusicProviderNote, systemImage: "music.note")
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
 
     private var wizardSettings: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -410,6 +445,17 @@ private struct AddMediaSourceWizardSheet: View {
         }
         return "登录信息只保存在本机，用于后续自动同步。MediaLIB 不会使用系统钥匙串。"
     }
+    
+    private var onlineMusicProviderNote: String {
+        switch onlineMusicProvider {
+        case .netease:
+            return "使用网易云音乐官方 API 进行搜索和播放。无需额外配置。"
+        case .gdstudio:
+            return "使用 GD Studio 音乐 API 作为网易云的备用源。"
+        case .custom:
+            return ""
+        }
+    }
 
     private var primaryActionTitle: String {
         switch step {
@@ -429,6 +475,8 @@ private struct AddMediaSourceWizardSheet: View {
                 return appState.isConnectingEmby ? "Emby 连接中" : "登录并同步"
             case .jellyfin:
                 return appState.isConnectingJellyfin ? "Jellyfin 连接中" : "登录并同步"
+            case .onlineMusic:
+                return "添加音乐源"
             }
         }
     }
@@ -447,6 +495,8 @@ private struct AddMediaSourceWizardSheet: View {
                 return "network"
             case .emby, .jellyfin, .plex:
                 return "arrow.triangle.2.circlepath"
+            case .onlineMusic:
+                return "music.note.list"
             }
         }
     }
@@ -473,6 +523,13 @@ private struct AddMediaSourceWizardSheet: View {
                 return appState.isConnectingJellyfin
                     || server.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     || username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            case .onlineMusic:
+                let nameValid = !onlineMusicName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                if onlineMusicProvider == .custom {
+                    let urlValid = !onlineMusicBaseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    return !nameValid || !urlValid
+                }
+                return !nameValid
             }
         case .settings:
             switch selectedKind {
@@ -486,6 +543,8 @@ private struct AddMediaSourceWizardSheet: View {
                 return appState.isConnectingEmby
             case .jellyfin:
                 return appState.isConnectingJellyfin
+            case .onlineMusic:
+                return false
             }
         }
     }
@@ -540,6 +599,8 @@ private struct AddMediaSourceWizardSheet: View {
             connectRemoteMediaServer(provider: .jellyfin)
         case .plex:
             connectRemoteMediaServer(provider: .plex)
+        case .onlineMusic:
+            addOnlineMusicSource()
         }
     }
 
@@ -624,6 +685,26 @@ private struct AddMediaSourceWizardSheet: View {
             }
         }
     }
+    
+    private func addOnlineMusicSource() {
+        let sourceKind = onlineMusicProvider.toOnlineSourceKind()
+        let config = OnlineSourceConfig(
+            kind: sourceKind,
+            provider: onlineMusicProvider.rawValue,
+            apiBase: onlineMusicProvider == .custom ? onlineMusicBaseURL : nil,
+            subscriptionURL: nil,
+            epgURL: nil,
+            userAgent: nil,
+            quality: nil,
+            needsParser: false
+        )
+        
+        dismiss()
+        appState.addOnlineMusicSource(
+            name: onlineMusicName,
+            config: config
+        )
+    }
 
     private var credentialURL: URL? {
         guard var components = URLComponents(string: networkURL.trimmingCharacters(in: .whitespacesAndNewlines)),
@@ -659,6 +740,7 @@ private enum AddMediaSourceKind: String, CaseIterable, Identifiable {
     case emby
     case jellyfin
     case plex
+    case onlineMusic
 
     var id: String { rawValue }
 
@@ -666,7 +748,7 @@ private enum AddMediaSourceKind: String, CaseIterable, Identifiable {
         switch self {
         case .emby, .jellyfin, .plex:
             return true
-        case .local, .network:
+        case .local, .network, .onlineMusic:
             return false
         }
     }
@@ -683,6 +765,8 @@ private enum AddMediaSourceKind: String, CaseIterable, Identifiable {
             return "Jellyfin"
         case .plex:
             return "Plex"
+        case .onlineMusic:
+            return "在线音乐"
         }
     }
 
@@ -698,6 +782,8 @@ private enum AddMediaSourceKind: String, CaseIterable, Identifiable {
             return "登录服务器并同步媒体库"
         case .plex:
             return "服务器地址与 Token 直连"
+        case .onlineMusic:
+            return "网易云音乐、GD Studio 或自定义 API"
         }
     }
 
@@ -713,6 +799,8 @@ private enum AddMediaSourceKind: String, CaseIterable, Identifiable {
             return "登录后同步到独立的 Jellyfin 目录。"
         case .plex:
             return "连接后同步到独立的 Plex 目录。"
+        case .onlineMusic:
+            return "选择音乐提供商并配置接入地址。"
         }
     }
 
@@ -728,6 +816,8 @@ private enum AddMediaSourceKind: String, CaseIterable, Identifiable {
             return "externaldrive.connected.to.line.below"
         case .plex:
             return "play.rectangle.on.rectangle"
+        case .onlineMusic:
+            return "music.note.list"
         }
     }
 }
@@ -1294,6 +1384,12 @@ struct SourceRowView: View {
             return "network"
         case .local:
             return "externaldrive.fill"
+        case .iptv:
+            return "tv"
+        case .vod:
+            return "play.rectangle.on.rectangle"
+        case .onlineMusic:
+            return "music.note.list"
         }
     }
 
@@ -1307,4 +1403,22 @@ struct SourceRowView: View {
         return source.name
     }
 
+}
+
+// MARK: - Online Music Provider
+
+private enum OnlineMusicProvider: String, CaseIterable, Identifiable {
+    case netease
+    case gdstudio
+    case custom
+    
+    var id: String { rawValue }
+    
+    func toOnlineSourceKind() -> OnlineSourceKind {
+        switch self {
+        case .netease: return .onlineMusicNetease
+        case .gdstudio: return .onlineMusicGDStudio
+        case .custom: return .onlineMusicCustom
+        }
+    }
 }
