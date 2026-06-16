@@ -467,6 +467,17 @@ struct MusicLibraryView: View {
             )
             .environmentObject(appState)
         }
+        .sheet(isPresented: $showingOnlineSearch) {
+            OnlineMusicSearchSheet(
+                onPlay: { result in
+                    Task {
+                        await playOnlineTrack(result)
+                    }
+                    showingOnlineSearch = false
+                }
+            )
+            .environmentObject(appState)
+        }
         .confirmationDialog(
             "删除歌单？",
             isPresented: $isConfirmingPlaylistDeletion,
@@ -563,6 +574,13 @@ struct MusicLibraryView: View {
                 }
                 .buttonStyle(LiquidGlassButtonStyle(cornerRadius: 13, horizontalPadding: 12, minHeight: 34, prominent: true))
             } else {
+                Button {
+                    showingOnlineSearch = true
+                } label: {
+                    Label("在线搜索", systemImage: "magnifyingglass.circle")
+                }
+                .disabled(appState.sources.filter { $0.sourceKind == .onlineMusic }.isEmpty)
+                
                 Button {
                     appState.scanSources(for: .music(section))
                 } label: {
@@ -2406,5 +2424,210 @@ struct MusicSmartPlaylistDetailView: View {
                 onCreatePlaylist: { playlistCreationRequest = $0 }
             )
         }
+    }
+    
+    private func playOnlineTrack(_ result: OnlineMusicSearchResult) async {
+        guard let source = appState.sources.first(where: { $0.sourceKind == .onlineMusic }),
+              let config = source.onlineConfig else {
+            appState.alert = AppAlert(title: "无可用的在线音乐源", message: "请先添加在线音乐源。")
+            return
+        }
+        
+        do {
+            let service = OnlineMusicService()
+            let playURL = try await service.playURL(songID: result.providerSongID, config: config)
+            
+            // Create a temporary MediaItem for playback
+            let tempItem = MediaItem(
+                id: result.id,
+                path: playURL,
+                name: result.name,
+                mediaType: .music,
+                sourceID: source.id
+            )
+            
+            appState.playMusic([tempItem], startIndex: 0)
+        } catch {
+            appState.showError("获取播放地址失败", error)
+        }
+    }
+}
+
+// MARK: - Online Music Search Sheet
+
+private struct OnlineMusicSearchSheet: View {
+    @EnvironmentObject private var appState: AppState
+    @Environment(\.dismiss) private var dismiss
+    @State private var searchText = ""
+    @State private var searchResults: [OnlineMusicSearchResult] = []
+    @State private var isSearching = false
+    let onPlay: (OnlineMusicSearchResult) -> Void
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            AppSheetHeader(
+                title: "在线搜索",
+                subtitle: "搜索并播放在线音乐",
+                systemImage: "magnifyingglass.circle"
+            )
+            
+            HStack(spacing: 12) {
+                TextField("输入歌曲名或歌手", text: $searchText)
+                    .textFieldStyle(.plain)
+                    .padding(10)
+                    .background(Color.primary.opacity(0.06))
+                    .cornerRadius(10)
+                    .onSubmit {
+                        performSearch()
+                    }
+                
+                Button {
+                    performSearch()
+                } label: {
+                    Label(isSearching ? "搜索中" : "搜索", systemImage: "magnifyingglass")
+                }
+                .buttonStyle(LiquidGlassButtonStyle(cornerRadius: 10, horizontalPadding: 14, minHeight: 38, prominent: true))
+                .disabled(searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSearching)
+            }
+            
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 10) {
+                    if searchResults.isEmpty && !isSearching {
+                        EmptyStateView(
+                            title: searchText.isEmpty ? "输入关键词开始搜索" : "无结果",
+                            systemImage: "music.note.list",
+                            message: searchText.isEmpty ? "" : "换个关键词试试"
+                        )
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 60)
+                    } else {
+                        ForEach(searchResults) { result in
+                            OnlineMusicResultRow(result: result, onPlay: onPlay)
+                        }
+                    }
+                }
+            }
+            .frame(maxHeight: 400)
+            
+            AppSheetActionFooter {
+                Button("关闭", role: .cancel) {
+                    dismiss()
+                }
+                .buttonStyle(LiquidGlassButtonStyle(cornerRadius: 12, horizontalPadding: 14, minHeight: 32))
+            }
+        }
+        .padding(.horizontal, 2)
+        .appSheetChrome(width: AppSheetMetrics.wideWidth, maxHeight: 600)
+    }
+    
+    private func performSearch() {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return }
+        
+        isSearching = true
+        
+        Task {
+            defer { isSearching = false }
+            
+            guard let source = appState.sources.first(where: { $0.sourceKind == .onlineMusic }),
+                  let config = source.onlineConfig else {
+                await MainActor.run {
+                    appState.alert = AppAlert(title: "无可用的在线音乐源", message: "请先添加在线音乐源。")
+                }
+                return
+            }
+            
+            do {
+                let service = OnlineMusicService()
+                let results = try await service.search(query: query, config: config)
+                
+                await MainActor.run {
+                    searchResults = results.map { item in
+                        OnlineMusicSearchResult(
+                            name: item["name"] as? String ?? "",
+                            artist: item["artist"] as? String ?? "",
+                            album: item["album"] as? String,
+                            duration: item["duration"] as? Int,
+                            provider: config.provider ?? "unknown",
+                            providerSongID: item["id"] as? String ?? ""
+                        )
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    appState.showError("搜索失败", error)
+                }
+            }
+        }
+    }
+}
+
+private struct OnlineMusicResultRow: View {
+    let result: OnlineMusicSearchResult
+    let onPlay: (OnlineMusicSearchResult) -> Void
+    @State private var isHovering = false
+    
+    var body: some View {
+        Button {
+            onPlay(result)
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "music.note")
+                    .font(.title3)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 40, height: 40)
+                    .background(Color.primary.opacity(0.06))
+                    .cornerRadius(8)
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(result.name)
+                        .font(.callout.weight(.medium))
+                        .lineLimit(1)
+                    
+                    HStack(spacing: 6) {
+                        Text(result.artist)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        
+                        if let album = result.album, !album.isEmpty {
+                            Text("·")
+                                .foregroundStyle(.secondary.opacity(0.5))
+                            Text(album)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        
+                        if let duration = result.duration {
+                            Text("·")
+                                .foregroundStyle(.secondary.opacity(0.5))
+                            Text(formatDuration(duration))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .lineLimit(1)
+                }
+                
+                Spacer(minLength: 0)
+                
+                Image(systemName: "play.circle.fill")
+                    .font(.title2)
+                    .foregroundStyle(isHovering ? .primary : .secondary)
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(isHovering ? Color.primary.opacity(0.06) : Color.clear)
+            .cornerRadius(10)
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            isHovering = hovering
+        }
+    }
+    
+    private func formatDuration(_ seconds: Int) -> String {
+        let minutes = seconds / 60
+        let secs = seconds % 60
+        return String(format: "%d:%02d", minutes, secs)
     }
 }
