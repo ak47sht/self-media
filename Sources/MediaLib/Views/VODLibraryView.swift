@@ -19,7 +19,6 @@ struct VODLibraryView: View {
     @State private var hasMorePages = true
     
     @State private var selectedVideo: VODVideo?
-    @State private var showingVideoDetail = false
     
     // displayVideos 计算属性在 sheet 弹出时会触发布局死循环，暂时禁用本地搜索
     // private var displayVideos: [VODVideo] {
@@ -175,19 +174,13 @@ struct VODLibraryView: View {
                                 selectedVideo = video
                                 NSLog("[MEDIALIB] ✅ selectedVideo 已设置")
                                 DebugLog.log("VODLibraryView", "✅ selectedVideo 已设置")
-                                showingVideoDetail = true
-                                NSLog("[MEDIALIB] ✅ showingVideoDetail = true")
-                                DebugLog.log("VODLibraryView", "✅ showingVideoDetail = true 完成")
                             } label: {
                                 VideoCard(video: video)
                             }
                             .buttonStyle(.plain)
                             .onAppear {
                                 // 滚动到倒数第5个时触发加载更多
-                                // 用 videos 数组避免重复计算 displayVideos（会触发布局死循环）
-                                // 只在没有弹出 sheet 时才触发加载更多，避免 sheet 弹出时布局重算触发无限递归
-                                if !showingVideoDetail,
-                                   let idx = videos.firstIndex(where: { $0.id == video.id }),
+                                if let idx = videos.firstIndex(where: { $0.id == video.id }),
                                    idx >= videos.count - 5 {
                                     loadMoreIfNeeded()
                                 }
@@ -218,18 +211,11 @@ struct VODLibraryView: View {
                 }
             }
         }
-        .sheet(isPresented: $showingVideoDetail) {
-            let _ = NSLog("[MEDIALIB] 📄 sheet 闭包被触发")
-            let _ = DebugLog.log("VODLibraryView", "📄 sheet 闭包被触发")
-            if let video = selectedVideo {
-                let _ = NSLog("[MEDIALIB] 🎬 准备构建 VODDetailView for %@", video.name)
-                let _ = DebugLog.log("VODLibraryView", "🎬 准备构建 VODDetailView for \(video.name)")
-                VODDetailView(video: video, source: source)
-                    .environmentObject(appState)
-            } else {
-                let _ = NSLog("[MEDIALIB] ⚠️ selectedVideo 为 nil")
-                let _ = DebugLog.log("VODLibraryView", "⚠️ selectedVideo 为 nil！")
-            }
+        .sheet(item: $selectedVideo) { video in
+            let _ = NSLog("[MEDIALIB] 📄 sheet 闭包被触发，video=%@", video.name)
+            let _ = DebugLog.log("VODLibraryView", "📄 sheet 闭包被触发，video=\(video.name)")
+            VODDetailView(video: video, source: source)
+                .environmentObject(appState)
         }
         .navigationTitle(source.name)
         .onAppear {
