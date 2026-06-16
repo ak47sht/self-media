@@ -2,7 +2,7 @@ import Foundation
 
 /// VOD 视频点播模型
 /// 对应 CMS API (苹果CMS/飞飞CMS) 的 vod 数据结构
-public struct VODVideo: Identifiable, Codable, Sendable {
+public struct VODVideo: Identifiable, Codable, Sendable, Equatable {
     public let id: String          // vod_id (sourceID_vodID)
     public let sourceID: String    // 来源 MediaSource 的 ID
     public let vodID: String       // 源站 vod_id
@@ -94,7 +94,7 @@ public struct VODVideo: Identifiable, Codable, Sendable {
 
 /// VOD 播放线路
 /// 一个视频可能有多个播放源（线路1、线路2）
-public struct VODPlayLine: Identifiable, Codable, Sendable {
+public struct VODPlayLine: Identifiable, Codable, Sendable, Equatable {
     public let id: String
     public let name: String        // 线路名称（如 "线路1", "HD", "蓝光"）
     public let episodes: [VODEpisode]  // 剧集列表
@@ -146,7 +146,7 @@ public struct VODPlayLine: Identifiable, Codable, Sendable {
 }
 
 /// VOD 剧集
-public struct VODEpisode: Identifiable, Codable, Sendable {
+public struct VODEpisode: Identifiable, Codable, Sendable, Equatable {
     public let id: String
     public let name: String    // 剧集名称（如 "第1集", "EP01"）
     public let url: String     // 播放地址
@@ -159,7 +159,7 @@ public struct VODEpisode: Identifiable, Codable, Sendable {
 }
 
 /// VOD 分类
-public struct VODCategory: Identifiable, Codable, Sendable {
+public struct VODCategory: Identifiable, Codable, Sendable, Equatable {
     public let id: Int           // type_id
     public let parentID: Int     // type_pid
     public let name: String      // type_name
