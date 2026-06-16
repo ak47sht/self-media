@@ -451,7 +451,7 @@ final class AppState: ObservableObject {
     // 只在本次进程内记住队列弹层上次停留位置，避免跨启动恢复到旧队列偏移。
     var musicQueueScrollAnchorID: String?
     let directories: AppDirectories?
-    private let database: DatabaseManager?
+    let database: DatabaseManager?
     private let sourceRepository: SourceRepository?
     private let mediaRepository: MediaRepository?
     private let musicPlaylistRepository: MusicPlaylistRepository?
@@ -3309,6 +3309,57 @@ final class AppState: ObservableObject {
         } catch {
             await MainActor.run {
                 showError("拉取 IPTV 频道失败", error)
+            }
+        }
+    }
+    
+    func addVODSource(name: String, config: OnlineSourceConfig) {
+        guard let sourceRepository else { return }
+        
+        do {
+            let source = MediaSource(
+                name: name,
+                path: "vod://\(name.replacingOccurrences(of: " ", with: "_"))",
+                mediaType: .other,  // VOD 包含多种类型
+                minimumFileSize: 0,
+                includeInMetadataFetch: false,
+                preferMetadataWriteToSource: false,
+                includeInHealthCheck: false,
+                onlineConfig: config
+            )
+            
+            try sourceRepository.save(source)
+            reload()
+            
+            // 异步拉取并缓存视频列表
+            Task {
+                await fetchVODVideos(for: source)
+            }
+            
+            alert = AppAlert(
+                title: "VOD 源已添加",
+                message: "\"\(name)\" 正在拉取视频列表..."
+            )
+        } catch {
+            showError("添加 VOD 源失败", error)
+        }
+    }
+    
+    private func fetchVODVideos(for source: MediaSource) async {
+        guard let db = database else { return }
+        let service = VODService(db: db)
+        
+        do {
+            let videos = try await service.fetchAndCacheVideos(from: source, page: 1, pageSize: 100)
+            await MainActor.run {
+                alert = AppAlert(
+                    title: "视频导入成功",
+                    message: "已导入 \(videos.count) 个视频（首页）"
+                )
+            }
+        } catch {
+            await MainActor.run {
+                showError("拉取 VOD 视频失败", error)
             }
         }
     }

@@ -2,7 +2,7 @@ import Foundation
 import SQLite3
 
 public final class DatabaseManager {
-    public static let currentSchemaVersion = 19
+    public static let currentSchemaVersion = 20
 
     private var db: OpaquePointer?
     private let queue = DispatchQueue(label: "MediaLib.DatabaseManager")
@@ -328,6 +328,13 @@ public final class DatabaseManager {
                 try execute("PRAGMA user_version = 19")
             }
             version = 19
+        }
+        if version < 20 {
+            try transaction {
+                try migrateToVersion20()
+                try execute("PRAGMA user_version = 20")
+            }
+            version = 20
         }
         guard version == Self.currentSchemaVersion else {
             throw DatabaseError.incompatibleSchema(found: version, supported: Self.currentSchemaVersion)
@@ -798,6 +805,32 @@ public final class DatabaseManager {
         """)
         try execute("CREATE INDEX IF NOT EXISTS index_iptv_channels_source ON iptv_channels_cache(source_id)")
         try execute("CREATE INDEX IF NOT EXISTS index_iptv_channels_group ON iptv_channels_cache(group_title)")
+    }
+    
+    private func migrateToVersion20() throws {
+        // VOD videos cache table
+        try execute("""
+        CREATE TABLE IF NOT EXISTS vod_videos_cache (
+          source_id TEXT NOT NULL,
+          vod_id TEXT NOT NULL,
+          name TEXT NOT NULL,
+          type TEXT,
+          year TEXT,
+          area TEXT,
+          lang TEXT,
+          pic TEXT,
+          actors TEXT,
+          director TEXT,
+          content TEXT,
+          play_urls_json TEXT NOT NULL,
+          updated_at TEXT,
+          PRIMARY KEY(source_id, vod_id),
+          FOREIGN KEY(source_id) REFERENCES media_sources(id) ON DELETE CASCADE
+        )
+        """)
+        try execute("CREATE INDEX IF NOT EXISTS index_vod_videos_source ON vod_videos_cache(source_id)")
+        try execute("CREATE INDEX IF NOT EXISTS index_vod_videos_type ON vod_videos_cache(type)")
+        try execute("CREATE INDEX IF NOT EXISTS index_vod_videos_year ON vod_videos_cache(year)")
     }
 
     private func validateBackup(at backupURL: URL) throws {
