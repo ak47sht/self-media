@@ -105,6 +105,11 @@ public struct VODPlayLine: Identifiable, Codable, Sendable, Equatable {
         self.episodes = episodes
     }
     
+    // 手动实现 Equatable，基于 name 和 episodes 比较（忽略 id）
+    public static func == (lhs: VODPlayLine, rhs: VODPlayLine) -> Bool {
+        lhs.name == rhs.name && lhs.episodes == rhs.episodes
+    }
+    
     /// 从 CMS 播放地址字符串解析
     /// 格式: "线路1$第1集$url1#第2集$url2$$线路2$第1集$url3#第2集$url4"
     /// 分隔符: $$ 分隔线路, # 分隔剧集, $ 分隔名称和URL
@@ -155,6 +160,11 @@ public struct VODEpisode: Identifiable, Codable, Sendable, Equatable {
         self.id = UUID().uuidString
         self.name = name
         self.url = url
+    }
+    
+    // 手动实现 Equatable，基于 name 和 url 比较（忽略 id）
+    public static func == (lhs: VODEpisode, rhs: VODEpisode) -> Bool {
+        lhs.name == rhs.name && lhs.url == rhs.url
     }
 }
 
