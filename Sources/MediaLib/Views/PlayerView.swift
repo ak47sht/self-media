@@ -8210,8 +8210,9 @@ final class MpvPlayerController: ObservableObject {
         guard isNetwork else { return }
 
         audioTimeControlObservation = player.observe(\.timeControlStatus, options: [.new]) { [weak self] observed, _ in
+            guard let self = self else { return }
             Task { @MainActor in
-                guard let self, self.audioPlayer === observed else { return }
+                guard self.audioPlayer === observed else { return }
                 switch observed.timeControlStatus {
                 case .waitingToPlayAtSpecifiedRate:
                     if self.isPlaying {
@@ -8228,8 +8229,9 @@ final class MpvPlayerController: ObservableObject {
         }
 
         audioBufferEmptyObservation = player.observe(\.currentItem?.isPlaybackBufferEmpty, options: [.new]) { [weak self] observed, _ in
+            guard let self = self else { return }
             Task { @MainActor in
-                guard let self, self.audioPlayer === observed else { return }
+                guard self.audioPlayer === observed else { return }
                 if observed.currentItem?.isPlaybackBufferEmpty == true, self.isPlaying {
                     self.updateBuffering(active: true, progress: nil)
                 }
@@ -8237,8 +8239,9 @@ final class MpvPlayerController: ObservableObject {
         }
 
         audioLikelyToKeepUpObservation = player.observe(\.currentItem?.isPlaybackLikelyToKeepUp, options: [.new]) { [weak self] observed, _ in
+            guard let self = self else { return }
             Task { @MainActor in
-                guard let self, self.audioPlayer === observed else { return }
+                guard self.audioPlayer === observed else { return }
                 guard observed.currentItem?.isPlaybackLikelyToKeepUp == true else { return }
                 self.updateBuffering(active: false, progress: nil)
                 // 标记为播放中但实际停在缓冲：缓冲恢复后主动续播，覆盖 paused 残留。
@@ -8277,9 +8280,9 @@ final class MpvPlayerController: ObservableObject {
         player.volume = 0
         videoRouteProxyPlayer = player
         videoRouteProxyObservation = player.observe(\.isExternalPlaybackActive, options: [.initial, .new]) { [weak self] observedPlayer, _ in
+            guard let self = self else { return }
             Task { @MainActor in
-                guard let self,
-                      self.videoRouteProxyPlayer === observedPlayer else { return }
+                guard self.videoRouteProxyPlayer === observedPlayer else { return }
                 self.setVideoRouteProxyActive(observedPlayer.isExternalPlaybackActive)
             }
         }
@@ -8418,9 +8421,9 @@ final class MpvPlayerController: ObservableObject {
         proxy.volume = 0
         audioRouteProxyPlayer = proxy
         audioRouteProxyObservation = proxy.observe(\.isExternalPlaybackActive, options: [.initial, .new]) { [weak self] observedPlayer, _ in
+            guard let self = self else { return }
             Task { @MainActor in
-                guard let self,
-                      self.audioRouteProxyPlayer === observedPlayer else { return }
+                guard self.audioRouteProxyPlayer === observedPlayer else { return }
                 self.setAudioRouteProxyActive(observedPlayer.isExternalPlaybackActive)
             }
         }
@@ -8486,9 +8489,10 @@ final class MpvPlayerController: ObservableObject {
             object: playerItem,
             queue: .main
         ) { [weak self] _ in
+            guard let self = self else { return }
             Task { @MainActor in
                 await Task.yield()
-                guard let self, self.playbackGeneration == generation else { return }
+                guard self.playbackGeneration == generation else { return }
                 let advancedToPreloaded = self.preloadedMusicItem.map {
                     self.audioPlayer?.currentItem === $0.playerItem
                 } == true
@@ -8501,9 +8505,9 @@ final class MpvPlayerController: ObservableObject {
     private func observeAudioExternalPlayback(for player: AVPlayer) {
         removeAudioExternalPlaybackObserver()
         audioExternalPlaybackObservation = player.observe(\.isExternalPlaybackActive, options: [.initial, .new]) { [weak self] observedPlayer, _ in
+            guard let self = self else { return }
             Task { @MainActor in
-                guard let self,
-                      self.audioPlayer === observedPlayer else { return }
+                guard self.audioPlayer === observedPlayer else { return }
                 self.routePickerRevision &+= 1
             }
         }
@@ -10052,8 +10056,8 @@ final class MpvPlayerController: ObservableObject {
         timer?.invalidate()
         let interval = item?.type == .music ? 0.18 : 0.25
         let progressTimer = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
             Task { @MainActor in
-                guard let self else { return }
                 if let audioPlayer = self.audioPlayer {
                     if let playerError = audioPlayer.currentItem?.error {
                         self.fail("音频播放失败：\(playerError.localizedDescription)")

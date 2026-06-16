@@ -155,6 +155,7 @@ struct AirPlayRoutePickerButton: NSViewRepresentable {
         Coordinator(activationID: activationID)
     }
 
+    @MainActor
     private func configure(_ routePickerView: AVRoutePickerView) {
         session.configure(
             routePickerView: routePickerView,

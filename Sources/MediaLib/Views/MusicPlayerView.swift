@@ -5827,6 +5827,32 @@ private struct MusicMiniPlayerGlassSurface: View {
         glassPerformanceMode.allowsPointerSampling
     }
 
+    private var fillTintGradient: LinearGradient {
+        LinearGradient(
+            colors: [
+                .white.opacity(colorScheme == .dark ? 0.28 : 0.66),
+                palette.primary.color.opacity(colorScheme == .dark ? 0.038 : 0.030),
+                AppColors.solarLightTint.opacity(colorScheme == .dark ? 0.070 : 0.105),
+                .white.opacity(colorScheme == .dark ? 0.08 : 0.30)
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+
+    private var strokeBorderGradient: LinearGradient {
+        LinearGradient(
+            colors: [
+                .white.opacity(colorScheme == .dark ? 0.36 : 0.82),
+                AppColors.solarLightTint.opacity(colorScheme == .dark ? 0.10 : 0.16),
+                palette.accent.color.opacity(colorScheme == .dark ? 0.10 : 0.075),
+                .white.opacity(colorScheme == .dark ? 0.10 : 0.28)
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
 
@@ -5839,33 +5865,10 @@ private struct MusicMiniPlayerGlassSurface: View {
                 shape.fill(Color.white.opacity(colorScheme == .dark ? 0.08 : 0.12))
             )
             .overlay {
-                shape.fill(
-                    LinearGradient(
-                        colors: [
-                            .white.opacity(colorScheme == .dark ? 0.28 : 0.66),
-                            palette.primary.color.opacity(colorScheme == .dark ? 0.038 : 0.030),
-                            AppColors.solarLightTint.opacity(colorScheme == .dark ? 0.070 : 0.105),
-                            .white.opacity(colorScheme == .dark ? 0.08 : 0.30)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
+                shape.fill(fillTintGradient)
             }
             .overlay {
-                shape.strokeBorder(
-                    LinearGradient(
-                        colors: [
-                            .white.opacity(colorScheme == .dark ? 0.36 : 0.82),
-                            AppColors.solarLightTint.opacity(colorScheme == .dark ? 0.10 : 0.16),
-                            palette.accent.color.opacity(colorScheme == .dark ? 0.10 : 0.075),
-                            .white.opacity(colorScheme == .dark ? 0.10 : 0.28)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    ),
-                    lineWidth: 1
-                )
+                shape.strokeBorder(strokeBorderGradient, lineWidth: 1)
             }
             .overlay {
                 LyricsCardEffectLayerView(

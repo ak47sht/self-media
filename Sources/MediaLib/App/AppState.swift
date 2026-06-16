@@ -530,8 +530,9 @@ final class AppState: ObservableObject {
     private var fileHealthTask: Task<Void, Never>?
     private var fileHealthRefreshID = UUID()
     private lazy var localFileEventMonitor = LocalFileEventMonitor { [weak self] changes in
+        guard let self = self else { return }
         Task { @MainActor in
-            self?.receiveLocalFileSystemChanges(changes)
+            self.receiveLocalFileSystemChanges(changes)
         }
     }
     private var musicQueuePersistenceTask: Task<Void, Never>?
@@ -622,8 +623,9 @@ final class AppState: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
+            guard let self = self else { return }
             Task { @MainActor in
-                self?.flushForegroundFallbackNotices()
+                self.flushForegroundFallbackNotices()
             }
         }
     }
@@ -5254,11 +5256,12 @@ final class AppState: ObservableObject {
         try removeExistingVideoCacheBeforeRedownload(itemID: item.id, taskID: taskID, store: store)
         let progressThrottler = VideoCacheProgressThrottler()
         let (temporaryURL, response) = try await controller.download(from: selectedURL) { [weak self] progress in
+            guard let self = self else { return }
             let fileFraction = Self.videoCacheFileFraction(progress)
             let overall = (Double(itemIndex) + fileFraction) / Double(max(totalItems, 1))
             guard progressThrottler.shouldPublish(overall) else { return }
             Task { @MainActor in
-                guard let self, self.videoCacheJobs[taskID] != nil else { return }
+                guard self.videoCacheJobs[taskID] != nil else { return }
                 let detail = self.videoCacheProgressDetail(
                     title: self.videoCacheDisplayTitle(for: item, hidesDetail: hidesDetail),
                     fileFraction: fileFraction,
@@ -8086,11 +8089,19 @@ final class AppState: ObservableObject {
     }
 
     private func displayedItem(id: String, fallback: MediaItem? = nil) -> MediaItem? {
-        items.first { $0.id == id } ??
-            activePlayerItem.flatMap { $0.id == id ? $0 : nil } ??
-            selectedItem.flatMap { $0.id == id ? $0 : nil } ??
-            quickPreviewItem.flatMap { $0.id == id ? $0 : nil } ??
-            fallback
+        if let match = items.first(where: { $0.id == id }) {
+            return match
+        }
+        if let active = activePlayerItem, active.id == id {
+            return active
+        }
+        if let selected = selectedItem, selected.id == id {
+            return selected
+        }
+        if let preview = quickPreviewItem, preview.id == id {
+            return preview
+        }
+        return fallback
     }
 
     private func syncConflictDisplayTitle(_ conflict: SyncConflict) -> String {

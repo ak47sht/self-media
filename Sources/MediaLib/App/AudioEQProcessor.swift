@@ -182,12 +182,13 @@ final class AudioEQProcessor {
             process: eqTapProcess
         )
 
-        var tap: MTAudioProcessingTap?
+        var tap: Unmanaged<MTAudioProcessingTap>?
         let status = MTAudioProcessingTapCreate(kCFAllocatorDefault, &callbacks, kMTAudioProcessingTapCreationFlag_PostEffects, &tap)
-        guard status == noErr, let createdTap = tap else {
+        guard status == noErr, let unmanagedTap = tap else {
             unmanaged.release() // tap 未创建，init 不会调用，需手动平衡 +1
             return nil
         }
+        let createdTap = unmanagedTap.takeUnretainedValue()
 
         let params = AVMutableAudioMixInputParameters(track: track)
         params.audioTapProcessor = createdTap

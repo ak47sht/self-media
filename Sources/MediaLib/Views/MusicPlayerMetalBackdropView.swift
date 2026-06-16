@@ -310,16 +310,18 @@ struct MetalAlbumBackdropView: NSViewRepresentable {
                 object: nil,
                 queue: .main
             ) { [weak self] _ in
-                Task { @MainActor in self?.applyPauseState() }
+                guard let self = self else { return }
+                Task { @MainActor in self.applyPauseState() }
             })
             notificationTokens.append(center.addObserver(
                 forName: NSApplication.didBecomeActiveNotification,
                 object: nil,
                 queue: .main
             ) { [weak self] _ in
+                guard let self = self else { return }
                 Task { @MainActor in
-                    self?.applyPauseState()
-                    self?.requestDraw()
+                    self.applyPauseState()
+                    self.requestDraw()
                 }
             })
             notificationTokens.append(center.addObserver(
@@ -327,9 +329,9 @@ struct MetalAlbumBackdropView: NSViewRepresentable {
                 object: nil,
                 queue: .main
             ) { [weak self] notification in
+                guard let self = self else { return }
                 Task { @MainActor in
-                    guard let self,
-                          notification.object as? NSWindow === self.view?.window else { return }
+                    guard notification.object as? NSWindow === self.view?.window else { return }
                     self.applyPauseState()
                     self.requestDraw()
                 }

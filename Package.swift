@@ -27,13 +27,10 @@ let package = Package(
             // not via Bundle.module, so keep them out of SwiftPM resource processing.
             exclude: ["Resources"],
             swiftSettings: [
-                // Upstream MediaLib sources were authored before Swift 6 strict
-                // concurrency. Relax checking to suppress 'reference to captured var
-                // self in concurrently-executing code' errors that block compilation.
-                .unsafeFlags(["-strict-concurrency=minimal"]),
-                // Disable optimizations to avoid 'compiler unable to type-check this
-                // expression in reasonable time' failures on complex SwiftUI expressions.
-                .unsafeFlags(["-Onone"])
+                // Upstream MediaLib sources predate Swift 6 strict concurrency.
+                // Keep checking relaxed as a safety net; the known capture sites
+                // are also fixed at the source level.
+                .unsafeFlags(["-strict-concurrency=minimal"])
             ]
         ),
         .executableTarget(

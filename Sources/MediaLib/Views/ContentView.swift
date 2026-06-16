@@ -301,7 +301,7 @@ struct ContentView: View {
     @AppStorage("MediaLib.sidebar.selection") private var storedSelectionID = "home"
     @AppStorage("MediaLib.music.albumGlowPerformanceNoticeShown") private var albumGlowPerformanceNoticeShown = false
 
-    var body: some View {
+    private var mainContent: some View {
         GeometryReader { geometry in
             ZStack(alignment: .bottom) {
                 if musicBackgroundRootSuspended {
@@ -353,6 +353,10 @@ struct ContentView: View {
             }
             .frame(width: geometry.size.width, height: geometry.size.height, alignment: .bottom)
         }
+    }
+
+    var body: some View {
+        mainContent
         .background {
             AppPageBackground(includeDirectionalLight: false)
         }
