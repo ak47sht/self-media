@@ -361,66 +361,49 @@ struct MusicLibraryView: View {
     @State private var lyricsRefreshTask: Task<Void, Never>?
     @State private var showingOnlineSearch = false
     @State private var onlineSearchResults: [OnlineMusicService.Song] = []
-    @State private var isSearchingOnline = false
-
+    
     var body: some View {
-        Group {
-            if usesStandaloneLongList {
-                standaloneLongListBody
-            } else {
-                scrollingBody
+        contentBody
+            .suppressListHighlight()
+            .background(AppPageBackground())
+            .navigationTitle(section.title)
+            .onAppear {
+                loadViewState(for: section)
+                refreshVisibleContent(for: section)
+                presentSectionTipIfNeeded(section)
             }
-        }
-        .suppressListHighlight()
-        .background(AppPageBackground())
-        .navigationTitle(section.title)
-        .onAppear {
-            loadViewState(for: section)
-            refreshVisibleContent(for: section)
-            presentSectionTipIfNeeded(section)
-        }
-        .onChange(of: searchText) { _ in
-            drilldown = nil
-            scheduleSearchRefresh()
-        }
-        .onChange(of: section.id) { newSectionID in
-            guard let newSection = MusicLibrarySection(rawValue: newSectionID) else { return }
-            searchRefreshTask?.cancel()
-            lyricsRefreshTask?.cancel()
-            drilldown = nil
-            loadViewState(for: newSection, reset: true)
-            refreshVisibleContent(for: newSection, deferred: true)
-            presentSectionTipIfNeeded(newSection)
-        }
-        .onChange(of: sortMode) { _ in
-            saveViewState(for: section)
-            searchRefreshTask?.cancel()
-            drilldown = nil
-            refreshVisibleContent(for: section, deferred: true)
-        }
-        .onChange(of: sortOrder) { _ in
-            saveViewState(for: section)
-            searchRefreshTask?.cancel()
-            drilldown = nil
-            refreshVisibleContent(for: section, deferred: true)
-        }
-        .onChange(of: filterMode) { _ in
-            saveViewState(for: section)
-            searchRefreshTask?.cancel()
-            drilldown = nil
-            refreshVisibleContent(for: section, deferred: true)
-        }
-        .onChange(of: appState.libraryRevision) { _ in
-            searchRefreshTask?.cancel()
-            if drilldown == nil {
+            .onChange(of: searchText) { _ in
+                drilldown = nil
+                scheduleSearchRefresh()
+            }
+            .onChange(of: section.id) { newSectionID in
+                guard let newSection = MusicLibrarySection(rawValue: newSectionID) else { return }
+                searchRefreshTask?.cancel()
+                lyricsRefreshTask?.cancel()
+                drilldown = nil
+                loadViewState(for: newSection, reset: true)
+                refreshVisibleContent(for: newSection, deferred: true)
+                presentSectionTipIfNeeded(newSection)
+            }
+            .onChange(of: sortMode) { _ in
+                saveViewState(for: section)
+                searchRefreshTask?.cancel()
+                drilldown = nil
                 refreshVisibleContent(for: section, deferred: true)
-            } else {
-                refreshActivePlaylistDrilldown()
             }
-        }
-        .onChange(of: appState.favoriteRevision) { _ in
-            // Refresh only when viewing the favorites filter or the favorites drilldown.
-            if filterMode == .favorites || section == .favorites {
+            .onChange(of: sortOrder) { _ in
+                saveViewState(for: section)
+                searchRefreshTask?.cancel()
+                drilldown = nil
+                refreshVisibleContent(for: section, deferred: true)
+            }
+            .onChange(of: filterMode) { _ in
+                saveViewState(for: section)
+                searchRefreshTask?.cancel()
+                drilldown = nil
+                refreshVisibleContent(for: section, deferred: true)
+            }
+            .onChange(of: appState.libraryRevision) { _ in
                 searchRefreshTask?.cancel()
                 if drilldown == nil {
                     refreshVisibleContent(for: section, deferred: true)
@@ -428,62 +411,71 @@ struct MusicLibraryView: View {
                     refreshActivePlaylistDrilldown()
                 }
             }
-        }
-        .onDisappear {
-            contentRefreshTask?.cancel()
-            searchRefreshTask?.cancel()
-            lyricsRefreshTask?.cancel()
-        }
-        .sheet(item: $metadataItem) { item in
-            MetadataSearchView(item: item)
+            .onChange(of: appState.favoriteRevision) { _ in
+                if filterMode == .favorites || section == .favorites {
+                    searchRefreshTask?.cancel()
+                    if drilldown == nil {
+                        refreshVisibleContent(for: section, deferred: true)
+                    } else {
+                        refreshActivePlaylistDrilldown()
+                    }
+                }
+            }
+            .onDisappear {
+                contentRefreshTask?.cancel()
+                searchRefreshTask?.cancel()
+                lyricsRefreshTask?.cancel()
+            }
+            .sheet(item: $metadataItem) { item in
+                MetadataSearchView(item: item)
+                    .environmentObject(appState)
+            }
+            .sheet(item: $playlistCreationRequest) { request in
+                MusicPlaylistCreationSheet(
+                    request: request,
+                    onCreate: { name in
+                        appState.createMusicPlaylist(name: name, tracks: request.tracks)
+                        playlistCreationRequest = nil
+                    },
+                    onCancel: {
+                        playlistCreationRequest = nil
+                    }
+                )
                 .environmentObject(appState)
-        }
-        .sheet(item: $playlistCreationRequest) { request in
-            MusicPlaylistCreationSheet(
-                request: request,
-                onCreate: { name in
-                    appState.createMusicPlaylist(name: name, tracks: request.tracks)
-                    playlistCreationRequest = nil
-                },
-                onCancel: {
-                    playlistCreationRequest = nil
-                }
-            )
-            .environmentObject(appState)
-        }
-        .sheet(item: $playlistRenameRequest) { request in
-            MusicPlaylistRenameSheet(
-                request: request,
-                onRename: { name in
-                    appState.renameMusicPlaylist(request.playlist, name: name)
-                    if let updated = appState.musicPlaylists.first(where: { $0.id == request.playlist.id }) {
-                        drilldown = .playlist(updated, appState.musicTracks(in: updated))
+            }
+            .sheet(item: $playlistRenameRequest) { request in
+                MusicPlaylistRenameSheet(
+                    request: request,
+                    onRename: { name in
+                        appState.renameMusicPlaylist(request.playlist, name: name)
+                        if let updated = appState.musicPlaylists.first(where: { $0.id == request.playlist.id }) {
+                            drilldown = .playlist(updated, appState.musicTracks(in: updated))
+                        }
+                        playlistRenameRequest = nil
+                    },
+                    onCancel: {
+                        playlistRenameRequest = nil
                     }
-                    playlistRenameRequest = nil
-                },
-                onCancel: {
-                    playlistRenameRequest = nil
-                }
-            )
-            .environmentObject(appState)
-        }
-        .sheet(isPresented: $showingOnlineSearch) {
-            OnlineMusicSearchSheet(
-                onPlay: { [weak appState] song in
-                    showingOnlineSearch = false
-                    guard let appState else { return }
-                    Task {
-                        await Self.playOnlineSong(song, appState: appState)
+                )
+                .environmentObject(appState)
+            }
+            .sheet(isPresented: $showingOnlineSearch) {
+                OnlineMusicSearchSheet(
+                    onPlay: { [weak appState] song in
+                        showingOnlineSearch = false
+                        guard let appState else { return }
+                        Task {
+                            await Self.playOnlineSong(song, appState: appState)
+                        }
                     }
-                }
-            )
-            .environmentObject(appState)
-        }
-        .confirmationDialog(
-            "删除歌单？",
-            isPresented: $isConfirmingPlaylistDeletion,
-            presenting: playlistPendingDeletion
-        ) { playlist in
+                )
+                .environmentObject(appState)
+            }
+            .confirmationDialog(
+                "删除歌单？",
+                isPresented: $isConfirmingPlaylistDeletion,
+                presenting: playlistPendingDeletion
+            ) { playlist in
             Button("删除“\(playlist.name)”", role: .destructive) {
                 appState.deleteMusicPlaylist(playlist)
                 if case .playlist(let activePlaylist, _) = drilldown,
@@ -502,7 +494,17 @@ struct MusicLibraryView: View {
             refreshActivePlaylistDrilldown()
         }
     }
-
+    
+    private var contentBody: some View {
+        Group {
+            if usesStandaloneLongList {
+                standaloneLongListBody
+            } else {
+                scrollingBody
+            }
+        }
+    }
+    
     private func presentSectionTipIfNeeded(_ targetSection: MusicLibrarySection) {
         guard targetSection == .songs else { return }
         appState.showInterfaceTipOnce(
