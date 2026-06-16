@@ -7,10 +7,12 @@ struct VODLibraryView: View {
     let source: MediaSource
     
     @State private var videos: [VODVideo] = []
+    @State private var filteredVideos: [VODVideo] = []  // 搜索筛选后的结果
     @State private var searchText = ""
     @State private var selectedTypeID: Int?  // 选中的分类ID
     @State private var categories: [VODCategory] = []  // 完整分类列表
     @State private var isLoading = true
+    @State private var isRefreshingCategories = false  // 刷新分类中
     @State private var errorMessage: String?
     
     // 分页状态
@@ -59,11 +61,34 @@ struct VODLibraryView: View {
                         .foregroundStyle(.secondary)
                     TextField("搜索视频...", text: $searchText)
                         .textFieldStyle(.plain)
+                    if !searchText.isEmpty {
+                        Button {
+                            searchText = ""
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 .background(Color.black.opacity(0.2))
                 .clipShape(RoundedRectangle(cornerRadius: 8))
+                
+                // 刷新分类按钮
+                Button {
+                    Task {
+                        await refreshCategories()
+                    }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .rotationEffect(.degrees(isRefreshingCategories ? 360 : 0))
+                        .animation(isRefreshingCategories ? .linear(duration: 1).repeatForever(autoreverses: false) : .default, value: isRefreshingCategories)
+                }
+                .buttonStyle(.plain)
+                .disabled(isRefreshingCategories)
+                .help("刷新分类列表")
                 
                 // 类型选择器
                 if !categories.isEmpty {
@@ -153,13 +178,18 @@ struct VODLibraryView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding()
-            } else if videos.isEmpty {
+            } else if filteredVideos.isEmpty {
                 VStack(spacing: 16) {
-                    Image(systemName: "film.stack")
+                    Image(systemName: searchText.isEmpty ? "film.stack" : "magnifyingglass")
                         .font(.system(size: 48))
                         .foregroundStyle(.secondary)
-                    Text("暂无视频")
+                    Text(searchText.isEmpty ? "暂无视频" : "无匹配结果")
                         .font(.title3.bold())
+                    if !searchText.isEmpty {
+                        Text("搜索 \"\(searchText)\" 未找到相关视频")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -167,7 +197,7 @@ struct VODLibraryView: View {
                     LazyVGrid(columns: [
                         GridItem(.adaptive(minimum: 160, maximum: 200), spacing: 16)
                     ], spacing: 20) {
-                        ForEach(videos) { video in
+                        ForEach(filteredVideos) { video in
                             Button {
                                 NSLog("[MEDIALIB] 🎯 点击封面: %@", video.name)
                                 DebugLog.log("VODLibraryView", "🎯 点击视频封面: \(video.name)")
@@ -225,6 +255,10 @@ struct VODLibraryView: View {
             if videos.isEmpty {
                 loadVideos(page: 1)
             }
+            // 初始化筛选结果
+            if filteredVideos.isEmpty && !videos.isEmpty {
+                filterVideos()
+            }
         }
         .onChange(of: selectedTypeID) { newValue in
             // 类型切换时重新从 API 加载第一页
@@ -234,9 +268,55 @@ struct VODLibraryView: View {
             hasMorePages = true
             loadVideos(page: 1)
         }
+        .onChange(of: searchText) { newValue in
+            // 搜索文本变化时实时筛选
+            filterVideos()
+        }
+        .onChange(of: videos) { _ in
+            // videos 变化时重新筛选
+            filterVideos()
+        }
+    }
+    
+    // MARK: - 搜索筛选
+    
+    private func filterVideos() {
+        if searchText.isEmpty {
+            filteredVideos = videos
+        } else {
+            filteredVideos = videos.filter { video in
+                video.name.localizedCaseInsensitiveContains(searchText) ||
+                (video.actors?.localizedCaseInsensitiveContains(searchText) ?? false) ||
+                (video.director?.localizedCaseInsensitiveContains(searchText) ?? false)
+            }
+        }
     }
     
     // MARK: - 数据加载
+    
+    private func refreshCategories() async {
+        guard let db = appState.database else { return }
+        
+        await MainActor.run {
+            isRefreshingCategories = true
+        }
+        
+        do {
+            let service = VODService(db: db)
+            let loaded = try await service.fetchCategories(from: source)
+            
+            await MainActor.run {
+                self.categories = loaded
+                self.isRefreshingCategories = false
+                DebugLog.log("VODLibraryView", "刷新分类成功: \(loaded.count) 个")
+            }
+        } catch {
+            await MainActor.run {
+                self.isRefreshingCategories = false
+            }
+            DebugLog.log("VODLibraryView", "❌ 刷新分类失败: \(error.localizedDescription)")
+        }
+    }
     
     private func loadCategories() {
         guard let db = appState.database else { return }
