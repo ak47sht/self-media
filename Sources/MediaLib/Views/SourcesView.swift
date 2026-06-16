@@ -780,7 +780,7 @@ private struct AddMediaSourceWizardSheet: View {
     
     private func addIPTVSource() {
         DebugLog.log("SourcesView", "添加 IPTV 源: \(iptvName)")
-        DebugLog.log("SourcesView", "  URL: \(iptvURL)")
+        DebugLog.log("SourcesView", "  URL: \(iptvSubscriptionURL)")
         
         let config = OnlineSourceConfig(
             kind: .iptv,

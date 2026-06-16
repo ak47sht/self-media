@@ -227,14 +227,14 @@ struct VODDetailView: View {
                 DebugLog.log("VODDetailView", "  自动选择第一条线路")
             }
         }
-        .onChange(of: selectedRouteIndex) { oldValue, newValue in
-            if let newIdx = newValue, newIdx < routes.count {
+        .onChange(of: selectedRouteIndex) { newIdx in
+            if let newIdx = newIdx, newIdx < routes.count {
                 let route = routes[newIdx]
                 DebugLog.log("VODDetailView", "切换线路: \(route.name) (共 \(route.episodes.count) 集)")
             }
             episodePage = 0
         }
-        .onChange(of: episodePage) { oldValue, newValue in
+        .onChange(of: episodePage) { newValue in
             if let idx = selectedRouteIndex, idx < routes.count {
                 let totalEps = routes[idx].episodes.count
                 let startEp = newValue * episodesPerPage + 1

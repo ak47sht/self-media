@@ -194,9 +194,9 @@ struct VODLibraryView: View {
                 loadVideos(page: 1)
             }
         }
-        .onChange(of: selectedType) { oldValue, newValue in
+        .onChange(of: selectedType) { newValue in
             // 类型切换时重新从 API 加载第一页
-            DebugLog.log("VODLibraryView", "类型切换: \(oldValue ?? "全部") -> \(newValue ?? "全部")")
+            DebugLog.log("VODLibraryView", "类型切换为: \(newValue ?? "全部")")
             videos = []
             currentPage = 1
             hasMorePages = true
