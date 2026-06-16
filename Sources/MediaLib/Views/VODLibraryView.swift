@@ -170,10 +170,13 @@ struct VODLibraryView: View {
                     ], spacing: 20) {
                         ForEach(videos) { video in
                             Button {
+                                NSLog("[MEDIALIB] 🎯 点击封面: %@", video.name)
                                 DebugLog.log("VODLibraryView", "🎯 点击视频封面: \(video.name)")
                                 selectedVideo = video
+                                NSLog("[MEDIALIB] ✅ selectedVideo 已设置")
                                 DebugLog.log("VODLibraryView", "✅ selectedVideo 已设置")
                                 showingVideoDetail = true
+                                NSLog("[MEDIALIB] ✅ showingVideoDetail = true")
                                 DebugLog.log("VODLibraryView", "✅ showingVideoDetail = true 完成")
                             } label: {
                                 VideoCard(video: video)
@@ -216,12 +219,15 @@ struct VODLibraryView: View {
             }
         }
         .sheet(isPresented: $showingVideoDetail) {
+            NSLog("[MEDIALIB] 📄 sheet 闭包被触发")
             DebugLog.log("VODLibraryView", "📄 sheet 闭包被触发")
             if let video = selectedVideo {
+                NSLog("[MEDIALIB] 🎬 准备构建 VODDetailView for %@", video.name)
                 DebugLog.log("VODLibraryView", "🎬 准备构建 VODDetailView for \(video.name)")
                 VODDetailView(video: video, source: source)
                     .environmentObject(appState)
             } else {
+                NSLog("[MEDIALIB] ⚠️ selectedVideo 为 nil")
                 DebugLog.log("VODLibraryView", "⚠️ selectedVideo 为 nil！")
             }
         }
