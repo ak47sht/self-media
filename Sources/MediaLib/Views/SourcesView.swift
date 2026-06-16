@@ -121,6 +121,10 @@ private struct AddMediaSourceWizardSheet: View {
     // IPTV source fields
     @State private var iptvName = ""
     @State private var iptvSubscriptionURL = ""
+    
+    // VOD source fields
+    @State private var vodName = ""
+    @State private var vodAPIURL = ""
 
     private let columns = [GridItem(.adaptive(minimum: 188), spacing: 10)]
     private let mediaTypes: [MediaType] = [
@@ -229,6 +233,8 @@ private struct AddMediaSourceWizardSheet: View {
                 onlineMusicConfiguration
             case .iptv:
                 iptvConfiguration
+            case .vod:
+                vodConfiguration
             }
         case .settings:
             wizardSettings
@@ -411,6 +417,24 @@ private struct AddMediaSourceWizardSheet: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
+    
+    private var vodConfiguration: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            sectionTitle("源名称")
+            TextField("为此 VOD 源命名（如：光速资源）", text: $vodName)
+                .glassFormField()
+            
+            sectionTitle("CMS API 地址")
+            TextField("https://api.example.com/api.php/provide/vod/", text: $vodAPIURL)
+                .glassFormField()
+            
+            AppInfoNote(
+                text: "支持苹果CMS、飞飞CMS等 JSON API 格式。导入后会缓存视频列表，支持多线路播放。",
+                systemImage: "film"
+            )
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
 
     private var wizardSettings: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -503,6 +527,8 @@ private struct AddMediaSourceWizardSheet: View {
                 return "添加音乐源"
             case .iptv:
                 return "添加 IPTV 源"
+            case .vod:
+                return "添加 VOD 源"
             }
         }
     }
@@ -525,6 +551,8 @@ private struct AddMediaSourceWizardSheet: View {
                 return "music.note.list"
             case .iptv:
                 return "tv"
+            case .vod:
+                return "film"
             }
         }
     }
@@ -561,6 +589,10 @@ private struct AddMediaSourceWizardSheet: View {
             case .iptv:
                 let nameValid = !iptvName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 let urlValid = !iptvSubscriptionURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                return !nameValid || !urlValid
+            case .vod:
+                let nameValid = !vodName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                let urlValid = !vodAPIURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 return !nameValid || !urlValid
             }
         case .settings:
@@ -637,6 +669,8 @@ private struct AddMediaSourceWizardSheet: View {
             addOnlineMusicSource()
         case .iptv:
             addIPTVSource()
+        case .vod:
+            addVODSource()
         }
     }
 
@@ -760,6 +794,25 @@ private struct AddMediaSourceWizardSheet: View {
             config: config
         )
     }
+    
+    private func addVODSource() {
+        let config = OnlineSourceConfig(
+            kind: .vodJSONAPI,
+            provider: "cms",
+            apiBase: vodAPIURL,
+            subscriptionURL: nil,
+            epgURL: nil,
+            userAgent: nil,
+            quality: nil,
+            needsParser: false
+        )
+        
+        dismiss()
+        appState.addVODSource(
+            name: vodName,
+            config: config
+        )
+    }
 
     private var credentialURL: URL? {
         guard var components = URLComponents(string: networkURL.trimmingCharacters(in: .whitespacesAndNewlines)),
@@ -797,6 +850,7 @@ private enum AddMediaSourceKind: String, CaseIterable, Identifiable {
     case plex
     case onlineMusic
     case iptv
+    case vod
 
     var id: String { rawValue }
 
@@ -804,7 +858,7 @@ private enum AddMediaSourceKind: String, CaseIterable, Identifiable {
         switch self {
         case .emby, .jellyfin, .plex:
             return true
-        case .local, .network, .onlineMusic, .iptv:
+        case .local, .network, .onlineMusic, .iptv, .vod:
             return false
         }
     }
@@ -825,6 +879,8 @@ private enum AddMediaSourceKind: String, CaseIterable, Identifiable {
             return "在线音乐"
         case .iptv:
             return "IPTV 直播"
+        case .vod:
+            return "视频点播"
         }
     }
 
@@ -844,6 +900,8 @@ private enum AddMediaSourceKind: String, CaseIterable, Identifiable {
             return "网易云音乐、GD Studio 或自定义 API"
         case .iptv:
             return "M3U/M3U8 订阅源，支持多线路切换"
+        case .vod:
+            return "CMS 视频点播源（苹果CMS/飞飞CMS）"
         }
     }
 
@@ -863,6 +921,8 @@ private enum AddMediaSourceKind: String, CaseIterable, Identifiable {
             return "选择音乐提供商并配置接入地址。"
         case .iptv:
             return "填写 M3U/M3U8 订阅地址以导入频道列表。"
+        case .vod:
+            return "填写 CMS API 地址以导入视频库。"
         }
     }
 
@@ -882,6 +942,8 @@ private enum AddMediaSourceKind: String, CaseIterable, Identifiable {
             return "music.note.list"
         case .iptv:
             return "tv"
+        case .vod:
+            return "film"
         }
     }
 }
