@@ -7481,6 +7481,7 @@ final class MpvPlayerController: ObservableObject {
     private var audioRouteProxyObservation: NSKeyValueObservation?
     private var audioRouteProxyIsActive = false
     private var audioExternalPlaybackObservation: NSKeyValueObservation?
+    private var audioStatusObservation: NSKeyValueObservation?
     private var audioRouteRefreshTask: Task<Void, Never>?
     private var videoRouteProxyPlayer: AVPlayer?
     private var videoRouteProxyObservation: NSKeyValueObservation?
@@ -7600,12 +7601,22 @@ final class MpvPlayerController: ObservableObject {
         updateBuffering(active: false, progress: nil)
         lastTrackRefreshDate = .distantPast
 
-        guard let filePath = item.filePath,
-              item.isRemoteResource || FileManager.default.fileExists(atPath: filePath) else {
+        guard let filePath = item.filePath else {
+            DebugLog.log("PlayerView", "❌ configure 失败: filePath 为 nil")
+            fail("媒体文件路径为空，无法播放。")
+            return
+        }
+        
+        if item.isRemoteResource {
+            DebugLog.log("PlayerView", "🌐 远程资源: \(filePath)")
+        } else if !FileManager.default.fileExists(atPath: filePath) {
+            DebugLog.log("PlayerView", "❌ 本地文件不存在: \(filePath)")
             fail("媒体文件不存在，可能是 NAS 未挂载、移动硬盘断开，或文件已被移动。")
             return
         }
+        
         self.filePath = filePath
+        DebugLog.log("PlayerView", "configure 完成，准备播放")
         duration = item.duration ?? 0
         if item.type == .music {
             currentTime = 0
@@ -7725,6 +7736,7 @@ final class MpvPlayerController: ObservableObject {
 
     private func startMpv() {
         guard libMpvClient == nil, let filePath else { return }
+        DebugLog.log("PlayerView", "🎬 startMpv 开始, URL: \(filePath)")
         guard let renderView, renderView.window != nil, let openGLContext = renderView.openGLContext else {
             videoStartRetryCount += 1
             if videoStartRetryCount <= 40 {
@@ -7732,6 +7744,7 @@ final class MpvPlayerController: ObservableObject {
                     self?.startMpv()
                 }
             } else {
+                DebugLog.log("PlayerView", "❌ startMpv: 渲染视图未就绪 (重试 \(videoStartRetryCount) 次后放弃)")
                 fail("播放器视图没有准备完成，无法创建视频渲染上下文。")
             }
             return
@@ -7748,7 +7761,9 @@ final class MpvPlayerController: ObservableObject {
             ) { [weak renderView] in
                 renderView?.needsDisplay = true
             }
+            DebugLog.log("PlayerView", "  LibMpvClient 已创建，正在 loadFile...")
             try client.loadFile(filePath)
+            DebugLog.log("PlayerView", "  ✅ loadFile 成功")
             applyVideoAdjustments(to: client)
             libMpvClient = client
             isPreparing = false
@@ -7760,8 +7775,11 @@ final class MpvPlayerController: ObservableObject {
             updateSystemNowPlaying()
             startTimer()
             reportPlayback(.started, force: true)
+            DebugLog.log("PlayerView", "  🎉 startMpv 完成，播放已启动")
             return
         } catch {
+            DebugLog.log("PlayerView", "  ❌ startMpv 失败: \(error.localizedDescription)")
+            DebugLog.log("PlayerView", "  失败的 URL: \(filePath)")
             fail("libmpv 播放核心启动失败：\(error.localizedDescription)")
             return
         }
@@ -7773,10 +7791,13 @@ final class MpvPlayerController: ObservableObject {
 
     private func startNativeAudio() {
         guard let filePath else { return }
+        DebugLog.log("PlayerView", "🎵 startNativeAudio, filePath: \(filePath), isRemote: \(item?.isRemoteResource == true)")
         guard let url = audioURL(for: filePath, isRemote: item?.isRemoteResource == true) else {
+            DebugLog.log("PlayerView", "  ❌ 音频 URL 构造失败: \(filePath)")
             fail("音频路径不可用。")
             return
         }
+        DebugLog.log("PlayerView", "  音频 URL: \(url.absoluteString), isFileURL: \(url.isFileURL)")
 
         let generation = playbackGeneration
         if url.isFileURL {
@@ -7807,6 +7828,7 @@ final class MpvPlayerController: ObservableObject {
         }
 
         let playerItem = makeAudioPlayerItem(url: url)
+        DebugLog.log("PlayerView", "  🌐 在线音乐流，直接安装 AVPlayer")
         installInitialNativeAudioPlayer(playerItem: playerItem, generation: generation, memoryAsset: nil, isNetwork: true)
     }
 
@@ -7827,6 +7849,19 @@ final class MpvPlayerController: ObservableObject {
         observeAudioEnd(for: playerItem, generation: generation)
         observeAudioExternalPlayback(for: player)
         installAudioStallRecovery(for: player, isNetwork: isNetwork)
+        
+        // 观察加载失败（特别是在线音乐 URL 无效时）
+        audioStatusObservation?.invalidate()
+        audioStatusObservation = playerItem.observe(\.status, options: [.new]) { [weak self] item, _ in
+            Task { @MainActor in
+                guard let self, self.playbackGeneration == generation else { return }
+                if item.status == .failed {
+                    let errorMsg = item.error?.localizedDescription ?? "未知错误"
+                    DebugLog.log("PlayerView", "❌ AVPlayerItem 加载失败: \(errorMsg)")
+                    self.fail("音频加载失败：\(errorMsg)")
+                }
+            }
+        }
 
         didReachAudioEnd = false
         audioPlayer = player
@@ -7987,6 +8022,17 @@ final class MpvPlayerController: ObservableObject {
         let playerItem = queuedPreload?.playerItem ?? preparedOverride?.playerItem ?? makeAudioPlayerItem(url: url, isNetwork: isNetwork)
         currentMemoryAudioAsset = queuedPreload?.memoryAsset ?? preparedOverride?.memoryAsset
         observeAudioEnd(for: playerItem, generation: generation)
+        audioStatusObservation?.invalidate()
+        audioStatusObservation = playerItem.observe(\.status, options: [.new]) { [weak self] obsItem, _ in
+            Task { @MainActor in
+                guard let self, self.playbackGeneration == generation else { return }
+                if obsItem.status == .failed {
+                    let errorMsg = obsItem.error?.localizedDescription ?? "未知错误"
+                    DebugLog.log("PlayerView", "❌ 切歌后 AVPlayerItem 加载失败: \(errorMsg)")
+                    self.fail("音频加载失败：\(errorMsg)")
+                }
+            }
+        }
         player.allowsExternalPlayback = true
         applyAudioStallPolicy(to: player, isNetwork: isNetwork)
         installAudioStallRecovery(for: player, isNetwork: isNetwork)
@@ -9921,6 +9967,8 @@ final class MpvPlayerController: ObservableObject {
         seekState = nil
         removeAudioEndObserver()
         removeAudioExternalPlaybackObserver()
+        audioStatusObservation?.invalidate()
+        audioStatusObservation = nil
         removeAudioStallRecovery()
         currentAudioSourceIsNetwork = false
         spectrumSuppressedDuringSeek = false
@@ -9974,6 +10022,8 @@ final class MpvPlayerController: ObservableObject {
         seekState = nil
         removeAudioEndObserver()
         removeAudioExternalPlaybackObserver()
+        audioStatusObservation?.invalidate()
+        audioStatusObservation = nil
         removeAudioStallRecovery()
         currentAudioSourceIsNetwork = false
         spectrumSuppressedDuringSeek = false
