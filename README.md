@@ -1,65 +1,54 @@
-# OpenClaw Media
+# self-media (MediaLib rebase)
 
-Native macOS media client for configurable Movie Lite and Music Lite style APIs.
+Personal-use macOS media app. This repository was **rebased onto
+[Again0521/MediaLib](https://github.com/Again0521/MediaLib)** — a native
+SwiftUI macOS app with a libmpv-based player — replacing the earlier
+lightweight `OpenClawMedia` prototype.
 
-This repository is intentionally public-safe:
+Why the rebase: the previous prototype was too thin to grow into the target
+app (Emby / Plex / Jellyfin connectors, episode aggregation, word-by-word
+lyrics, library health, offline cache). MediaLib already ships that
+architecture, so we adopt it as the trunk and extend it.
 
-- No real domains.
-- No tokens.
-- No SQLite data.
-- No private VPS deployment paths.
-- No copied source from unclear-license reference projects.
+## Architecture
 
-## Configure locally
-
-```bash
-cp config.example.json config.local.json
-```
-
-Edit `config.local.json` with your own service domains:
-
-```json
-{
-  "movieBaseURL": "https://movie.example.com/tools/movie-lite",
-  "musicBaseURL": "https://music.example.com/tools/music-lite"
-}
-```
-
-`config.local.json` is ignored by git.
-
-## Current scope
-
-- SwiftUI macOS app skeleton.
-- Config loader with placeholder/setup mode.
-- Client models for IPTV channels, music search, play URLs, and lyrics.
-- API client for:
-  - `GET /api/iptv/channels`
-  - `GET /api/iptv/channel`
-  - `GET /api/search`
-  - `GET /api/play-url`
-  - `GET /api/lyrics`
+- `Sources/MediaLibCore` — pure Foundation/AppKit/SQLite3 layer: models,
+  services, and SQLite repositories (real DB persistence).
+- `Sources/MediaLib` — the SwiftUI macOS app. libmpv is loaded at runtime via
+  `dlopen` (no compile-time linkage); the player, remote connectors
+  (`EmbyService`, `PlexService`), TMDB/Trakt/Last.fm, subtitle search and
+  offline cache live here.
+- `Sources/MediaLibChecks` — runnable assertion harness used as a CI gate.
 
 ## Build
 
-On macOS:
+CI builds an unsigned DMG on a macOS runner
+(`.github/workflows/public-safety-and-build.yml`):
+
+1. `brew install mpv ffmpeg` (libmpv + ffmpeg get bundled into the `.app`).
+2. `scripts/medialib/package_dmg.sh` — `swift build -c release` + `.app`
+   bundling + libmpv/ffmpeg embedding + DMG packaging.
+3. On `main`, the DMG is published to the `latest` GitHub release.
+
+Local macOS build:
 
 ```bash
-swift build
+brew install mpv ffmpeg
+./scripts/medialib/package_dmg.sh   # produces dist/MediaLib.dmg
 ```
 
-The GitHub Actions workflow runs:
+The Linux side has no Swift toolchain; `scripts/validate_medialib_structure.py`
+asserts the architecture is intact before the macOS job runs.
 
-1. Public-safety scan on Ubuntu.
-2. Swift build on macOS.
+## Planned extensions (this fork)
 
-## Docs
+- Movie Lite (VOD) and Music Lite as `MediaSource` connectors, reusing the
+  Emby/Plex connector pattern. Endpoint template in `config.example.json`.
 
-- [Config](docs/CONFIG.md)
-- [API contract](docs/API_CONTRACT.md)
-- [Figma brief](docs/FIGMA_BRIEF.md)
-- [Figma Make prompt](docs/FIGMA_MAKE_PROMPT.md)
-- [Figma Make export analysis](docs/FIGMA_MAKE_EXPORT_ANALYSIS.md)
-- [Mac media app references](docs/MEDIA_APP_REFERENCES.md)
-- [Configurable sources](docs/CONFIGURABLE_SOURCES.md)
-- [Decisions](docs/DECISIONS.md)
-- [Open-source spike](docs/OPEN_SOURCE_SPIKE.md)
+## Attribution & license
+
+Upstream app: [Again0521/MediaLib](https://github.com/Again0521/MediaLib).
+Per upstream, this code is **for personal study and use**. Bundled libmpv,
+ffmpeg and other third-party components follow their own licenses. Confirm the
+relevant license terms before any redistribution or commercial use.
+See `docs/MEDIALIB_UPSTREAM_README.md` for the upstream README.
