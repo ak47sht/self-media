@@ -157,3 +157,22 @@ public struct VODEpisode: Identifiable, Codable, Sendable {
         self.url = url
     }
 }
+
+/// VOD 分类
+public struct VODCategory: Identifiable, Codable, Sendable {
+    public let id: Int           // type_id
+    public let parentID: Int     // type_pid
+    public let name: String      // type_name
+    
+    public init(id: Int, parentID: Int, name: String) {
+        self.id = id
+        self.parentID = parentID
+        self.name = name
+    }
+    
+    enum CodingKeys: String, CodingKey {
+        case id = "type_id"
+        case parentID = "type_pid"
+        case name = "type_name"
+    }
+}

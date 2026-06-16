@@ -1,6 +1,16 @@
 import Foundation
 import MediaLibCore
 
+/// VOD 分页结果
+public struct VODPagedResult: Sendable {
+    public let videos: [VODVideo]
+    public let page: Int
+    public let pageCount: Int
+    public let total: Int
+    
+    public var hasMore: Bool { page < pageCount }
+}
+
 /// VOD 视频点播服务
 /// 支持 CMS JSON API (苹果CMS/飞飞CMS 格式)
 public class VODService {
@@ -16,13 +26,13 @@ public class VODService {
     ///   - page: 页码（从1开始）
     ///   - keyword: 搜索关键词（可选）
     ///   - typeID: 分类ID（可选）
-    /// - Returns: 视频列表
+    /// - Returns: 分页结果
     public func fetchVideos(
         from source: MediaSource,
         page: Int = 1,
         keyword: String? = nil,
         typeID: String? = nil
-    ) async throws -> [VODVideo] {
+    ) async throws -> VODPagedResult {
         guard source.sourceKind == .vod else {
             throw VODServiceError.invalidSourceType
         }
@@ -72,6 +82,13 @@ public class VODService {
             throw VODServiceError.parseError
         }
         
+        // 解析分页信息
+        let currentPage = json["page"] as? Int ?? page
+        let pageCount = json["pagecount"] as? Int ?? 1
+        let total = json["total"] as? Int ?? list.count
+        
+        DebugLog.log("VODService", "分页信息: 第 \(currentPage)/\(pageCount) 页, 总计 \(total) 条")
+        
         // 解析视频列表
         let videos = list.compactMap { VODVideo.parseFromCMS(json: $0, sourceID: source.id) }
         DebugLog.log("VODService", "解析成功: \(videos.count) 个视频 (原始数据 \(list.count) 条)")
@@ -79,7 +96,59 @@ public class VODService {
         // 缓存到数据库
         try cacheVideos(videos)
         
-        return videos
+        return VODPagedResult(
+            videos: videos,
+            page: currentPage,
+            pageCount: pageCount,
+            total: total
+        )
+    }
+    
+    /// 获取 VOD 分类列表
+    /// - Parameter source: VOD 源
+    /// - Returns: 分类列表
+    public func fetchCategories(from source: MediaSource) async throws -> [VODCategory] {
+        guard source.sourceKind == .vod else {
+            throw VODServiceError.invalidSourceType
+        }
+        
+        guard let config = source.onlineConfig,
+              let baseURL = config.apiBase else {
+            throw VODServiceError.missingConfiguration
+        }
+        
+        // 构建 URL (ac=list 返回分类列表)
+        var urlComponents = URLComponents(string: baseURL)
+        urlComponents?.queryItems = [
+            URLQueryItem(name: "ac", value: "list"),
+            URLQueryItem(name: "pg", value: "1")
+        ]
+        
+        guard let url = urlComponents?.url else {
+            throw VODServiceError.invalidURL
+        }
+        
+        DebugLog.log("VODService", "请求分类列表: \(url.absoluteString)")
+        
+        let (data, _) = try await URLSession.shared.data(from: url)
+        
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let classArray = json["class"] as? [[String: Any]] else {
+            DebugLog.log("VODService", "❌ 分类列表解析失败")
+            throw VODServiceError.parseError
+        }
+        
+        let decoder = JSONDecoder()
+        let categories = classArray.compactMap { dict -> VODCategory? in
+            guard let data = try? JSONSerialization.data(withJSONObject: dict),
+                  let category = try? decoder.decode(VODCategory.self, from: data) else {
+                return nil
+            }
+            return category
+        }
+        
+        DebugLog.log("VODService", "获取到 \(categories.count) 个分类")
+        return categories
     }
     
     /// 拉取并缓存视频（便捷方法）
@@ -88,7 +157,8 @@ public class VODService {
         page: Int = 1,
         pageSize: Int = 100
     ) async throws -> [VODVideo] {
-        return try await fetchVideos(from: source, page: page)
+        let result = try await fetchVideos(from: source, page: page)
+        return result.videos
     }
     
     /// 缓存视频列表到数据库

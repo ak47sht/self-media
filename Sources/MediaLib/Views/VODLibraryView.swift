@@ -8,7 +8,8 @@ struct VODLibraryView: View {
     
     @State private var videos: [VODVideo] = []
     @State private var searchText = ""
-    @State private var selectedType: String?
+    @State private var selectedTypeID: Int?  // 选中的分类ID
+    @State private var categories: [VODCategory] = []  // 完整分类列表
     @State private var isLoading = true
     @State private var errorMessage: String?
     
@@ -19,11 +20,6 @@ struct VODLibraryView: View {
     
     @State private var selectedVideo: VODVideo?
     @State private var showingVideoDetail = false
-    
-    private var types: [String] {
-        let allTypes = videos.compactMap { $0.type }
-        return Array(Set(allTypes)).sorted()
-    }
     
     private var displayVideos: [VODVideo] {
         var result = videos
@@ -38,6 +34,18 @@ struct VODLibraryView: View {
         }
         
         return result
+    }
+    
+    private var topCategories: [VODCategory] {
+        categories.filter { $0.parentID == 0 }
+    }
+    
+    private var selectedCategoryName: String {
+        guard let id = selectedTypeID,
+              let category = categories.first(where: { $0.id == id }) else {
+            return "全部"
+        }
+        return category.name
     }
     
     var body: some View {
@@ -57,20 +65,36 @@ struct VODLibraryView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 
                 // 类型选择器
-                if !types.isEmpty {
+                if !categories.isEmpty {
                     Menu {
                         Button("全部类型") {
-                            selectedType = nil
+                            selectedTypeID = nil
                         }
                         Divider()
-                        ForEach(types, id: \.self) { type in
-                            Button(type) {
-                                selectedType = type
+                        // 只显示顶级分类（type_pid == 0）及其子分类
+                        ForEach(topCategories, id: \.id) { parent in
+                            let children = categories.filter { $0.parentID == parent.id }
+                            if children.isEmpty {
+                                Button(parent.name) {
+                                    selectedTypeID = parent.id
+                                }
+                            } else {
+                                Menu(parent.name) {
+                                    Button("全部\(parent.name)") {
+                                        selectedTypeID = parent.id
+                                    }
+                                    Divider()
+                                    ForEach(children, id: \.id) { child in
+                                        Button(child.name) {
+                                            selectedTypeID = child.id
+                                        }
+                                    }
+                                }
                             }
                         }
                     } label: {
                         HStack(spacing: 6) {
-                            Text(selectedType ?? "全部")
+                            Text(selectedCategoryName)
                                 .font(.callout)
                             Image(systemName: "chevron.down")
                                 .font(.caption)
@@ -192,13 +216,16 @@ struct VODLibraryView: View {
         }
         .navigationTitle(source.name)
         .onAppear {
+            if categories.isEmpty {
+                loadCategories()
+            }
             if videos.isEmpty {
                 loadVideos(page: 1)
             }
         }
-        .onChange(of: selectedType) { newValue in
+        .onChange(of: selectedTypeID) { newValue in
             // 类型切换时重新从 API 加载第一页
-            DebugLog.log("VODLibraryView", "类型切换为: \(newValue ?? "全部")")
+            DebugLog.log("VODLibraryView", "类型切换为: \(newValue.map(String.init) ?? "全部")")
             videos = []
             currentPage = 1
             hasMorePages = true
@@ -214,6 +241,24 @@ struct VODLibraryView: View {
     
     // MARK: - 数据加载
     
+    private func loadCategories() {
+        guard let db = appState.database else { return }
+        
+        Task {
+            do {
+                let service = VODService(db: db)
+                let loaded = try await service.fetchCategories(from: source)
+                
+                await MainActor.run {
+                    self.categories = loaded
+                    DebugLog.log("VODLibraryView", "加载了 \(loaded.count) 个分类")
+                }
+            } catch {
+                DebugLog.log("VODLibraryView", "❌ 分类加载失败: \(error.localizedDescription)")
+            }
+        }
+    }
+    
     private func loadVideos(page: Int) {
         guard let db = appState.database else { return }
         
@@ -226,8 +271,8 @@ struct VODLibraryView: View {
             DebugLog.log("VODLibraryView", "加载第 \(page) 页")
         }
         
-        if let type = selectedType {
-            DebugLog.log("VODLibraryView", "  筛选类型: \(type)")
+        if let typeID = selectedTypeID {
+            DebugLog.log("VODLibraryView", "  筛选类型ID: \(typeID)")
         }
         
         errorMessage = nil
@@ -235,25 +280,29 @@ struct VODLibraryView: View {
         Task {
             do {
                 let service = VODService(db: db)
-                let loaded = try await service.fetchVideos(from: source, page: page)
+                let result = try await service.fetchVideos(
+                    from: source,
+                    page: page,
+                    typeID: selectedTypeID.map(String.init)
+                )
                 
-                DebugLog.log("VODLibraryView", "API 返回 \(loaded.count) 个视频")
+                DebugLog.log("VODLibraryView", "API 返回 \(result.videos.count) 个视频，第 \(result.page)/\(result.pageCount) 页")
                 
                 await MainActor.run {
                     if page == 1 {
-                        self.videos = loaded
+                        self.videos = result.videos
                         DebugLog.log("VODLibraryView", "  替换为新数据，总数: \(self.videos.count)")
                     } else {
-                        self.videos.append(contentsOf: loaded)
+                        self.videos.append(contentsOf: result.videos)
                         DebugLog.log("VODLibraryView", "  追加数据，总数: \(self.videos.count)")
                     }
                     
-                    self.currentPage = page
-                    self.hasMorePages = loaded.count >= 100
+                    self.currentPage = result.page
+                    self.hasMorePages = result.hasMore
                     self.isLoading = false
                     self.isLoadingMore = false
                     
-                    DebugLog.log("VODLibraryView", "  当前页: \(page), 还有更多: \(self.hasMorePages)")
+                    DebugLog.log("VODLibraryView", "  当前页: \(result.page), 还有更多: \(self.hasMorePages)")
                 }
             } catch {
                 DebugLog.log("VODLibraryView", "❌ 加载失败: \(error.localizedDescription)")
