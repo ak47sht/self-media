@@ -8,10 +8,13 @@ struct VODDetailView: View {
     let source: MediaSource
     
     @State private var selectedRouteIndex: Int?
+    @State private var episodePage = 0  // 剧集分页，每页 50 集
     
     private var routes: [VODPlayLine] {
         video.playURLs
     }
+    
+    private let episodesPerPage = 50
     
     var body: some View {
         ScrollView {
@@ -139,19 +142,65 @@ struct VODDetailView: View {
                         if let selectedIndex = selectedRouteIndex,
                            selectedIndex < routes.count {
                             let selectedRoute = routes[selectedIndex]
+                            let totalEpisodes = selectedRoute.episodes.count
                             
                             Divider()
                             
-                            Text("剧集 (\(selectedRoute.episodes.count))")
-                                .font(.headline)
+                            HStack {
+                                Text("剧集 (\(totalEpisodes))")
+                                    .font(.headline)
+                                
+                                Spacer()
+                                
+                                // 分页控制（仅当剧集超过 episodesPerPage 时显示）
+                                if totalEpisodes > episodesPerPage {
+                                    let totalPages = (totalEpisodes + episodesPerPage - 1) / episodesPerPage
+                                    let startEp = episodePage * episodesPerPage + 1
+                                    let endEp = min((episodePage + 1) * episodesPerPage, totalEpisodes)
+                                    
+                                    HStack(spacing: 12) {
+                                        Button {
+                                            if episodePage > 0 {
+                                                episodePage -= 1
+                                            }
+                                        } label: {
+                                            Image(systemName: "chevron.left")
+                                                .font(.caption)
+                                        }
+                                        .disabled(episodePage == 0)
+                                        .buttonStyle(.plain)
+                                        
+                                        Text("\(startEp)-\(endEp)")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                        
+                                        Button {
+                                            if episodePage < totalPages - 1 {
+                                                episodePage += 1
+                                            }
+                                        } label: {
+                                            Image(systemName: "chevron.right")
+                                                .font(.caption)
+                                        }
+                                        .disabled(episodePage >= totalPages - 1)
+                                        .buttonStyle(.plain)
+                                    }
+                                }
+                            }
+                            
+                            // 计算当前页的剧集范围
+                            let startIndex = episodePage * episodesPerPage
+                            let endIndex = min(startIndex + episodesPerPage, totalEpisodes)
+                            let pageEpisodes = Array(selectedRoute.episodes[startIndex..<endIndex])
                             
                             LazyVGrid(columns: [
                                 GridItem(.adaptive(minimum: 80), spacing: 12)
                             ], spacing: 12) {
-                                ForEach(Array(selectedRoute.episodes.enumerated()), id: \.offset) { index, episode in
+                                ForEach(Array(pageEpisodes.enumerated()), id: \.offset) { pageIndex, episode in
+                                    let actualIndex = startIndex + pageIndex
                                     EpisodeButton(
                                         title: episode.name,
-                                        index: index + 1
+                                        index: actualIndex + 1
                                     ) {
                                         playVideo(episode: episode, route: selectedRoute.name)
                                     }
@@ -165,16 +214,49 @@ struct VODDetailView: View {
         }
         .navigationTitle("视频详情")
         .onAppear {
+            print("🎬 [VODDetailView] 打开详情页")
+            print("   视频: \(video.name)")
+            print("   线路数: \(routes.count)")
+            if !routes.isEmpty {
+                print("   总剧集数: \(routes.map { $0.episodes.count })")
+            }
+            
             if selectedRouteIndex == nil && !routes.isEmpty {
                 selectedRouteIndex = 0
+                print("   自动选择第一条线路")
+            }
+        }
+        .onChange(of: selectedRouteIndex) { oldValue, newValue in
+            // 切换线路时重置剧集分页到第一页
+            if let newIdx = newValue, newIdx < routes.count {
+                let route = routes[newIdx]
+                print("🎬 [VODDetailView] 切换线路: \(route.name) (共 \(route.episodes.count) 集)")
+            }
+            episodePage = 0
+        }
+        .onChange(of: episodePage) { oldValue, newValue in
+            if let idx = selectedRouteIndex, idx < routes.count {
+                let totalEps = routes[idx].episodes.count
+                let startEp = newValue * episodesPerPage + 1
+                let endEp = min((newValue + 1) * episodesPerPage, totalEps)
+                print("🎬 [VODDetailView] 剧集分页: 第 \(newValue + 1) 页 (\(startEp)-\(endEp) / \(totalEps))")
             }
         }
     }
     
     private func playVideo(episode: VODEpisode, route: String) {
+        print("🎬 [VODDetailView] 开始播放")
+        print("   视频: \(video.name)")
+        print("   剧集: \(episode.name)")
+        print("   线路: \(route)")
+        print("   URL: \(episode.url)")
+        
         // 创建 MediaItem 并播放
         let mediaItem = MediaItemFactory.makeMediaItem(from: video, episode: episode)
+        print("   MediaItem 已创建: \(mediaItem.title)")
+        
         appState.play(mediaItem)
+        print("   已调用 appState.play()")
     }
 }
 

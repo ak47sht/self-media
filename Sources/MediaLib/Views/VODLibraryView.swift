@@ -196,6 +196,7 @@ struct VODLibraryView: View {
         }
         .onChange(of: selectedType) { oldValue, newValue in
             // 类型切换时重新从 API 加载第一页
+            print("🎬 [VODLibraryView] 类型切换: \(oldValue ?? "全部") -> \(newValue ?? "全部")")
             videos = []
             currentPage = 1
             hasMorePages = true
@@ -218,6 +219,13 @@ struct VODLibraryView: View {
             isLoading = true
             currentPage = 1
             hasMorePages = true
+            print("🎬 [VODLibraryView] 加载第一页")
+        } else {
+            print("🎬 [VODLibraryView] 加载第 \(page) 页")
+        }
+        
+        if let type = selectedType {
+            print("   筛选类型: \(type)")
         }
         
         errorMessage = nil
@@ -227,19 +235,26 @@ struct VODLibraryView: View {
                 let service = VODService(db: db)
                 let loaded = try await service.fetchVideos(from: source, page: page)
                 
+                print("🎬 [VODLibraryView] API 返回 \(loaded.count) 个视频")
+                
                 await MainActor.run {
                     if page == 1 {
                         self.videos = loaded
+                        print("   替换为新数据，总数: \(self.videos.count)")
                     } else {
                         self.videos.append(contentsOf: loaded)
+                        print("   追加数据，总数: \(self.videos.count)")
                     }
                     
                     self.currentPage = page
                     self.hasMorePages = loaded.count >= 100  // 如果返回满页，说明可能还有更多
                     self.isLoading = false
                     self.isLoadingMore = false
+                    
+                    print("   当前页: \(page), 还有更多: \(self.hasMorePages)")
                 }
             } catch {
+                print("🎬 [VODLibraryView] 加载失败: \(error.localizedDescription)")
                 await MainActor.run {
                     self.errorMessage = error.localizedDescription
                     self.isLoading = false
@@ -250,8 +265,14 @@ struct VODLibraryView: View {
     }
     
     private func loadMoreIfNeeded() {
-        guard !isLoadingMore && !isLoading && hasMorePages else { return }
+        guard !isLoadingMore && !isLoading && hasMorePages else {
+            if !hasMorePages {
+                print("🎬 [VODLibraryView] 已到最后一页，不再加载")
+            }
+            return
+        }
         
+        print("🎬 [VODLibraryView] 触发加载更多（第 \(currentPage + 1) 页）")
         isLoadingMore = true
         loadVideos(page: currentPage + 1)
     }
