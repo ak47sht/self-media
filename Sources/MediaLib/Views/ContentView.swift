@@ -704,26 +704,32 @@ struct ContentView: View {
     }
 
     private var navigationRoot: some View {
+        let _ = print("[navigationRoot] 开始重算 selection=\(String(describing: selection)) \(Date().timeIntervalSince1970)")
         // 预计算所有 detailView 需要的 appState 查找，避免在 detailView 内触发布局死循环
         let vodSource: MediaSource? = {
             if case .vod(let sourceID) = selection {
+                print("[navigationRoot] 查找 vodSource for \(sourceID)")
                 return appState.sources.first(where: { $0.id == sourceID })
             }
             return nil
         }()
         let iptvSource: MediaSource? = {
             if case .iptv(let sourceID) = selection {
+                print("[navigationRoot] 查找 iptvSource for \(sourceID)")
                 return appState.sources.first(where: { $0.id == sourceID })
             }
             return nil
         }()
+        let _ = print("[navigationRoot] 读取 canDisplayPrivateItems")
         let canDisplayPrivateItems = appState.canDisplayPrivateItems
         let musicSmartPlaylist: MusicSmartPlaylist? = {
             if case .musicSmartPlaylist(let playlistID) = selection {
+                print("[navigationRoot] 查找 musicSmartPlaylist for \(playlistID)")
                 return appState.musicSmartPlaylist(id: playlistID)
             }
             return nil
         }()
+        let _ = print("[navigationRoot] 预计算完成，构建 NavigationSplitView")
         
         return NavigationSplitView(columnVisibility: $columnVisibility) {
             List(selection: $selection) {
