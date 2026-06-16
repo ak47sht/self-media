@@ -10738,6 +10738,15 @@ struct VideoPlayerWindowPresenter: NSViewRepresentable {
             let shouldProbeMountedNetwork = RemoteVideoQualityPlanner.isMountedNetworkFile(for: item) &&
                 VideoAspectRatioResolver.canProbeLocalFile(for: item)
             let cachedAspect = VideoAspectRatioResolver.cachedAspectRatio(for: item)
+            
+            DebugLog.log("VideoPlayerWindowPresenter", "准备呈现播放器")
+            DebugLog.log("VideoPlayerWindowPresenter", "  item.title: \(item.title)")
+            DebugLog.log("VideoPlayerWindowPresenter", "  item.filePath: \(item.filePath ?? "nil")")
+            DebugLog.log("VideoPlayerWindowPresenter", "  item.isRemoteResource: \(item.isRemoteResource)")
+            DebugLog.log("VideoPlayerWindowPresenter", "  canProbeLocalFile: \(VideoAspectRatioResolver.canProbeLocalFile(for: item))")
+            DebugLog.log("VideoPlayerWindowPresenter", "  shouldProbeMountedNetwork: \(shouldProbeMountedNetwork)")
+            DebugLog.log("VideoPlayerWindowPresenter", "  cachedAspect: \(cachedAspect?.description ?? "nil")")
+            
             if shouldProbeMountedNetwork || cachedAspect == nil {
                 if VideoAspectRatioResolver.canProbeLocalFile(for: item) {
                     closeWindow(clearSelection: false)
@@ -11144,6 +11153,14 @@ enum VideoAspectRatioResolver {
 
     static func probeLocalAspectRatio(filePath: String) async -> CGFloat? {
         guard !filePath.isEmpty else { return nil }
+        
+        // 安全防护：拒绝探测远程 URL（HTTP/HTTPS/RTSP 等），避免网络超时卡死
+        if let scheme = URL(string: filePath)?.scheme?.lowercased(),
+           ["http", "https", "rtsp", "rtmp", "rtp", "mms", "srt", "udp", "ftp"].contains(scheme) {
+            DebugLog.log("VideoAspectRatioResolver", "⚠️ 拒绝探测远程 URL: \(filePath)")
+            return nil
+        }
+        
         return await Task.detached(priority: .userInitiated) { () -> CGFloat? in
             let url = URL(fileURLWithPath: filePath)
             let asset = AVURLAsset(url: url)
