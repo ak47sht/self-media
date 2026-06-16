@@ -469,10 +469,11 @@ struct MusicLibraryView: View {
         }
         .sheet(isPresented: $showingOnlineSearch) {
             OnlineMusicSearchSheet(
-                onPlay: { song in
+                onPlay: { [weak appState] song in
                     showingOnlineSearch = false
+                    guard let appState else { return }
                     Task {
-                        await handlePlayOnlineSong(song)
+                        await Self.playOnlineSong(song, appState: appState)
                     }
                 }
             )
@@ -2427,7 +2428,7 @@ struct MusicSmartPlaylistDetailView: View {
     }
     
     @MainActor
-    private func handlePlayOnlineSong(_ song: OnlineMusicService.Song) async {
+    private static func playOnlineSong(_ song: OnlineMusicService.Song, appState: AppState) async {
         let onlineSources = appState.sources.filter { $0.sourceKind == .onlineMusic }
         guard !onlineSources.isEmpty else {
             appState.alert = AppAlert(title: "无可用的在线音乐源", message: "请先添加在线音乐源。")
@@ -2458,12 +2459,12 @@ struct MusicSmartPlaylistDetailView: View {
             
             let tempItem = MediaItem(
                 id: song.id,
-                type: .track,
+                type: .music,
                 title: song.name,
                 artist: song.artist,
                 album: song.album,
-                filePath: result.url,
-                sourcePath: onlineSources.first?.path
+                sourcePath: onlineSources.first?.path,
+                filePath: result.url
             )
             
             appState.play(tempItem)
