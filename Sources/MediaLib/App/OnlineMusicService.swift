@@ -18,6 +18,11 @@ public struct OnlineMusicTrack: Identifiable, Codable, Sendable {
         self.duration = duration
         self.coverURL = coverURL
     }
+    
+    /// 显示用的艺术家名称
+    public var displayArtist: String {
+        artist.isEmpty ? "Unknown" : artist
+    }
 }
 
 /// 在线音乐服务
@@ -25,10 +30,54 @@ public struct OnlineMusicTrack: Identifiable, Codable, Sendable {
 public actor OnlineMusicService {
     private let session: URLSession
     
+    /// Song 类型别名（兼容现有 UI 代码）
+    public typealias Song = OnlineMusicTrack
+    
+    /// 搜索结果（兼容现有 UI 代码）
+    public struct SearchResult {
+        public let songs: [Song]
+    }
+    
     public init() {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 15
         self.session = URLSession(configuration: config)
+    }
+    
+    // MARK: - 兼容旧 API 的方法
+    
+    /// 搜索音乐（兼容旧 API 签名）
+    public func search(query: String, neteaseAPI: String?, gdstudioAPI: String?) async throws -> SearchResult? {
+        // 优先使用 neteaseAPI，其次 gdstudioAPI，最后官方源
+        let provider: OnlineMusicProvider
+        if let apiBase = neteaseAPI {
+            provider = .custom(apiBase)
+        } else if let apiBase = gdstudioAPI {
+            provider = .custom(apiBase)
+        } else {
+            provider = .netease
+        }
+        
+        let tracks = try await search(query: query, provider: provider)
+        return SearchResult(songs: tracks)
+    }
+    
+    /// 获取播放地址（兼容旧 API 签名）
+    public func playURL(song: Song, neteaseAPI: String?, gdstudioAPI: String?) async throws -> (url: String, lyric: String?)? {
+        // 优先使用 neteaseAPI，其次 gdstudioAPI，最后官方源
+        let provider: OnlineMusicProvider
+        if let apiBase = neteaseAPI {
+            provider = .custom(apiBase)
+        } else if let apiBase = gdstudioAPI {
+            provider = .custom(apiBase)
+        } else {
+            provider = .netease
+        }
+        
+        let playURL = try await playURL(songID: song.id, provider: provider)
+        let lyricText = try? await lyric(songID: song.id, provider: provider)
+        
+        return (url: playURL.absoluteString, lyric: lyricText)
     }
     
     // MARK: - 搜索
