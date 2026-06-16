@@ -26,6 +26,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Select Xcode 15.4 (Swift 5.10 — matches upstream MediaLib build)
+        run: |
+          set -euo pipefail
+          # macos-14 ships several Xcodes; upstream built on the Swift 5.9/5.10
+          # toolchain. Xcode 16's stricter concurrency/type-check breaks the
+          # upstream sources, so pin 15.x. Fall back to newest 15.x present.
+          XC="/Applications/Xcode_15.4.app"
+          if [[ ! -d "$XC" ]]; then
+            XC="$(ls -d /Applications/Xcode_15*.app 2>/dev/null | sort -V | tail -1 || true)"
+          fi
+          test -n "$XC" && test -d "$XC"
+          echo "Using $XC"
+          sudo xcode-select -s "$XC/Contents/Developer"
+          echo "DEVELOPER_DIR=$XC/Contents/Developer" >> "$GITHUB_ENV"
+          swift --version
+          xcodebuild -version
+
       - name: Install libmpv + ffmpeg (runtime deps bundled into the .app)
         run: |
           set -euo pipefail
