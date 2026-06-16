@@ -23,6 +23,8 @@ public struct MediaSource: Identifiable, Codable, Hashable {
     public var remoteTraceSyncMode: RemoteTraceSyncMode
     /// Emby 来源纳入 MediaLIB 的服务器媒体库 ID。空数组表示保持兼容的全库同步。
     public var selectedEmbyLibraryIDs: [String]
+    /// 在线源（IPTV/VOD/在线音乐）的解析配置。本地/媒体服务器源为 nil。
+    public var onlineConfig: OnlineSourceConfig?
     public var createdAt: Date
     public var updatedAt: Date
 
@@ -44,6 +46,7 @@ public struct MediaSource: Identifiable, Codable, Hashable {
         includeInHealthCheck: Bool = true,
         remoteTraceSyncMode: RemoteTraceSyncMode = .bidirectional,
         selectedEmbyLibraryIDs: [String] = [],
+        onlineConfig: OnlineSourceConfig? = nil,
         createdAt: Date = Date(),
         updatedAt: Date = Date()
     ) {
@@ -64,6 +67,7 @@ public struct MediaSource: Identifiable, Codable, Hashable {
         self.includeInHealthCheck = includeInHealthCheck
         self.remoteTraceSyncMode = remoteTraceSyncMode
         self.selectedEmbyLibraryIDs = selectedEmbyLibraryIDs
+        self.onlineConfig = onlineConfig
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
@@ -86,6 +90,7 @@ public struct MediaSource: Identifiable, Codable, Hashable {
         case includeInHealthCheck
         case remoteTraceSyncMode
         case selectedEmbyLibraryIDs
+        case onlineConfig
         case createdAt
         case updatedAt
     }
@@ -110,6 +115,7 @@ public struct MediaSource: Identifiable, Codable, Hashable {
             includeInHealthCheck: try container.decodeIfPresent(Bool.self, forKey: .includeInHealthCheck) ?? true,
             remoteTraceSyncMode: try container.decodeIfPresent(RemoteTraceSyncMode.self, forKey: .remoteTraceSyncMode) ?? .bidirectional,
             selectedEmbyLibraryIDs: try container.decodeIfPresent([String].self, forKey: .selectedEmbyLibraryIDs) ?? [],
+            onlineConfig: try container.decodeIfPresent(OnlineSourceConfig.self, forKey: .onlineConfig),
             createdAt: try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date(),
             updatedAt: try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? Date()
         )
@@ -128,6 +134,15 @@ public struct MediaSource: Identifiable, Codable, Hashable {
         }
         if path.hasPrefix("plex://") {
             return .plex
+        }
+        if path.hasPrefix("iptv://") {
+            return .iptv
+        }
+        if path.hasPrefix("vod://") {
+            return .vod
+        }
+        if path.hasPrefix("onlinemusic://") {
+            return .onlineMusic
         }
         if path.hasPrefix("smb://") {
             return .smb
@@ -164,9 +179,16 @@ public enum MediaSourceKind: String, Codable, Hashable {
     case plex
     case smb
     case ftp
+    case iptv
+    case vod
+    case onlineMusic
 
     public var isRemoteMediaServer: Bool {
         self == .emby || self == .jellyfin || self == .plex
+    }
+
+    public var isOnlineSource: Bool {
+        self == .iptv || self == .vod || self == .onlineMusic
     }
 
     public var displayName: String {
@@ -177,6 +199,9 @@ public enum MediaSourceKind: String, Codable, Hashable {
         case .plex: return "Plex"
         case .smb: return "SMB"
         case .ftp: return "FTP"
+        case .iptv: return "IPTV"
+        case .vod: return "点播源"
+        case .onlineMusic: return "在线音乐"
         }
     }
 }
