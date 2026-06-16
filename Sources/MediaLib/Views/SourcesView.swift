@@ -117,6 +117,10 @@ private struct AddMediaSourceWizardSheet: View {
     @State private var onlineMusicProvider: OnlineMusicProvider = .netease
     @State private var onlineMusicName = ""
     @State private var onlineMusicBaseURL = ""
+    
+    // IPTV source fields
+    @State private var iptvName = ""
+    @State private var iptvSubscriptionURL = ""
 
     private let columns = [GridItem(.adaptive(minimum: 188), spacing: 10)]
     private let mediaTypes: [MediaType] = [
@@ -223,6 +227,8 @@ private struct AddMediaSourceWizardSheet: View {
                 remoteConfiguration
             case .onlineMusic:
                 onlineMusicConfiguration
+            case .iptv:
+                iptvConfiguration
             }
         case .settings:
             wizardSettings
@@ -387,6 +393,24 @@ private struct AddMediaSourceWizardSheet: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
+    
+    private var iptvConfiguration: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            sectionTitle("源名称")
+            TextField("为此 IPTV 源命名（如：央视频道）", text: $iptvName)
+                .glassFormField()
+            
+            sectionTitle("M3U/M3U8 订阅地址")
+            TextField("https://example.com/playlist.m3u8", text: $iptvSubscriptionURL)
+                .glassFormField()
+            
+            AppInfoNote(
+                text: "支持 M3U 和 M3U8 格式订阅。导入后会解析频道列表并缓存，支持多线路切换。",
+                systemImage: "tv"
+            )
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
 
     private var wizardSettings: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -477,6 +501,8 @@ private struct AddMediaSourceWizardSheet: View {
                 return appState.isConnectingJellyfin ? "Jellyfin 连接中" : "登录并同步"
             case .onlineMusic:
                 return "添加音乐源"
+            case .iptv:
+                return "添加 IPTV 源"
             }
         }
     }
@@ -497,6 +523,8 @@ private struct AddMediaSourceWizardSheet: View {
                 return "arrow.triangle.2.circlepath"
             case .onlineMusic:
                 return "music.note.list"
+            case .iptv:
+                return "tv"
             }
         }
     }
@@ -530,6 +558,10 @@ private struct AddMediaSourceWizardSheet: View {
                     return !nameValid || !urlValid
                 }
                 return !nameValid
+            case .iptv:
+                let nameValid = !iptvName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                let urlValid = !iptvSubscriptionURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                return !nameValid || !urlValid
             }
         case .settings:
             switch selectedKind {
@@ -544,6 +576,8 @@ private struct AddMediaSourceWizardSheet: View {
             case .jellyfin:
                 return appState.isConnectingJellyfin
             case .onlineMusic:
+                return false
+            case .iptv:
                 return false
             }
         }
@@ -601,6 +635,8 @@ private struct AddMediaSourceWizardSheet: View {
             connectRemoteMediaServer(provider: .plex)
         case .onlineMusic:
             addOnlineMusicSource()
+        case .iptv:
+            addIPTVSource()
         }
     }
 
@@ -705,6 +741,25 @@ private struct AddMediaSourceWizardSheet: View {
             config: config
         )
     }
+    
+    private func addIPTVSource() {
+        let config = OnlineSourceConfig(
+            kind: .iptv,
+            provider: "m3u",
+            apiBase: iptvSubscriptionURL,
+            subscriptionURL: iptvSubscriptionURL,
+            epgURL: nil,
+            userAgent: nil,
+            quality: nil,
+            needsParser: true
+        )
+        
+        dismiss()
+        appState.addIPTVSource(
+            name: iptvName,
+            config: config
+        )
+    }
 
     private var credentialURL: URL? {
         guard var components = URLComponents(string: networkURL.trimmingCharacters(in: .whitespacesAndNewlines)),
@@ -741,6 +796,7 @@ private enum AddMediaSourceKind: String, CaseIterable, Identifiable {
     case jellyfin
     case plex
     case onlineMusic
+    case iptv
 
     var id: String { rawValue }
 
@@ -748,7 +804,7 @@ private enum AddMediaSourceKind: String, CaseIterable, Identifiable {
         switch self {
         case .emby, .jellyfin, .plex:
             return true
-        case .local, .network, .onlineMusic:
+        case .local, .network, .onlineMusic, .iptv:
             return false
         }
     }
@@ -767,6 +823,8 @@ private enum AddMediaSourceKind: String, CaseIterable, Identifiable {
             return "Plex"
         case .onlineMusic:
             return "在线音乐"
+        case .iptv:
+            return "IPTV 直播"
         }
     }
 
@@ -784,6 +842,8 @@ private enum AddMediaSourceKind: String, CaseIterable, Identifiable {
             return "服务器地址与 Token 直连"
         case .onlineMusic:
             return "网易云音乐、GD Studio 或自定义 API"
+        case .iptv:
+            return "M3U/M3U8 订阅源，支持多线路切换"
         }
     }
 
@@ -801,6 +861,8 @@ private enum AddMediaSourceKind: String, CaseIterable, Identifiable {
             return "连接后同步到独立的 Plex 目录。"
         case .onlineMusic:
             return "选择音乐提供商并配置接入地址。"
+        case .iptv:
+            return "填写 M3U/M3U8 订阅地址以导入频道列表。"
         }
     }
 
@@ -818,6 +880,8 @@ private enum AddMediaSourceKind: String, CaseIterable, Identifiable {
             return "play.rectangle.on.rectangle"
         case .onlineMusic:
             return "music.note.list"
+        case .iptv:
+            return "tv"
         }
     }
 }

@@ -3261,6 +3261,57 @@ final class AppState: ObservableObject {
             showError("添加在线音乐源失败", error)
         }
     }
+    
+    func addIPTVSource(name: String, config: OnlineSourceConfig) {
+        guard let sourceRepository else { return }
+        
+        do {
+            let source = MediaSource(
+                name: name,
+                path: "iptv://\(name.replacingOccurrences(of: " ", with: "_"))",
+                mediaType: .other,  // IPTV 不属于传统分类
+                minimumFileSize: 0,
+                includeInMetadataFetch: false,
+                preferMetadataWriteToSource: false,
+                includeInHealthCheck: false,
+                onlineConfig: config
+            )
+            
+            try sourceRepository.save(source)
+            reload()
+            
+            // 异步拉取并缓存频道列表
+            Task {
+                await fetchIPTVChannels(for: source)
+            }
+            
+            alert = AppAlert(
+                title: "IPTV 源已添加",
+                message: "\"\(name)\" 正在拉取频道列表..."
+            )
+        } catch {
+            showError("添加 IPTV 源失败", error)
+        }
+    }
+    
+    private func fetchIPTVChannels(for source: MediaSource) async {
+        guard let db = appDatabase else { return }
+        let service = IPTVService(db: db)
+        
+        do {
+            let channels = try await service.fetchAndCacheChannels(from: source)
+            await MainActor.run {
+                alert = AppAlert(
+                    title: "频道导入成功",
+                    message: "已导入 \(channels.count) 个频道"
+                )
+            }
+        } catch {
+            await MainActor.run {
+                showError("拉取 IPTV 频道失败", error)
+            }
+        }
+    }
 
     func connectEmbyServer(
         server: String,
