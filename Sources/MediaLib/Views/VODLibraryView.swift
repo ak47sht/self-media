@@ -170,8 +170,11 @@ struct VODLibraryView: View {
                     ], spacing: 20) {
                         ForEach(videos) { video in
                             Button {
+                                print("[VODLibraryView] 点击视频封面: \(video.name) \(Date().timeIntervalSince1970)")
                                 selectedVideo = video
+                                print("[VODLibraryView] selectedVideo 已设置 \(Date().timeIntervalSince1970)")
                                 showingVideoDetail = true
+                                print("[VODLibraryView] showingVideoDetail = true 完成 \(Date().timeIntervalSince1970)")
                             } label: {
                                 VideoCard(video: video)
                             }
@@ -213,9 +216,13 @@ struct VODLibraryView: View {
             }
         }
         .sheet(isPresented: $showingVideoDetail) {
+            let _ = print("[VODLibraryView] sheet 闭包被触发 \(Date().timeIntervalSince1970)")
             if let video = selectedVideo {
+                let _ = print("[VODLibraryView] 准备构建 VODDetailView for \(video.name) \(Date().timeIntervalSince1970)")
                 VODDetailView(video: video, source: source)
                     .environmentObject(appState)
+            } else {
+                let _ = print("[VODLibraryView] selectedVideo 为 nil！")
             }
         }
         .navigationTitle(source.name)
