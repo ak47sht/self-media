@@ -173,7 +173,7 @@ struct VODDetailView: View {
     
     private func playVideo(episode: VODEpisode, route: String) {
         let mediaItem = MediaItemFactory.makeMediaItem(from: video, episode: episode)
-        appState.playMedia(item: mediaItem)
+        appState.play(mediaItem)
     }
 }
 

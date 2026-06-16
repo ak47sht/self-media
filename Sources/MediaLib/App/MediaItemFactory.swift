@@ -15,21 +15,20 @@ enum MediaItemFactory {
         
         return MediaItem(
             id: "\(channel.sourceID)_\(channel.channelID)_\(urlIndex)",
-            type: .video,
+            type: .movie,  // IPTV 直播使用 movie 类型
             title: channel.name,
             originalTitle: nil,
             artist: nil,
-            album: channel.groupTitle,  // 分组名作为 "专辑"
+            album: channel.groupTitle,
             trackNumber: nil,
             year: nil,
             overview: "IPTV 直播频道",
-            genre: channel.groupTitle,
             posterPath: channel.logo,
             backdropPath: nil,
             rating: nil,
             userRating: nil,
             runtime: nil,
-            sourcePath: playURL,  // 播放地址
+            sourcePath: playURL,
             parentID: channel.sourceID,
             seasonNumber: nil,
             episodeNumber: nil,
@@ -39,17 +38,24 @@ enum MediaItemFactory {
             audioCodec: nil,
             resolution: nil,
             videoBitrate: nil,
-            duration: nil,  // 直播流无固定时长
+            duration: nil,
             loudnessTrackGainDB: nil,
-            subtitleCodec: nil,
-            contentAdvisory: nil,
-            releaseDate: nil,
-            addedAt: channel.updatedAt ?? Date(),
-            lastPlayedAt: nil,
+            loudnessAlbumGainDB: nil,
+            loudnessTrackPeak: nil,
+            loudnessAlbumPeak: nil,
             playCount: 0,
-            isWatched: false,
-            sourceID: channel.sourceID,
-            serverId: nil
+            playPosition: 0,
+            playProgress: 0,
+            watched: false,
+            favorite: false,
+            watchlist: false,
+            externalID: nil,
+            metadataProvider: nil,
+            collectionTitle: channel.groupTitle,
+            createdAt: channel.updatedAt ?? Date(),
+            updatedAt: channel.updatedAt ?? Date(),
+            lastPlayedAt: nil,
+            genre: channel.groupTitle
         )
     }
     
@@ -61,21 +67,20 @@ enum MediaItemFactory {
     static func makeMediaItem(from video: VODVideo, episode: VODEpisode) -> MediaItem {
         return MediaItem(
             id: "\(video.sourceID)_\(video.vodID)_\(episode.name)",
-            type: .video,
+            type: .episode,  // VOD 剧集使用 episode 类型
             title: "\(video.name) - \(episode.name)",
             originalTitle: video.name,
             artist: video.director,
-            album: video.type,  // 类型（电影/剧集/动漫等）
+            album: video.type,
             trackNumber: nil,
             year: video.year.flatMap { Int($0) },
             overview: video.content,
-            genre: video.type,
             posterPath: video.pic,
             backdropPath: nil,
             rating: nil,
             userRating: nil,
             runtime: nil,
-            sourcePath: episode.url,  // 播放地址
+            sourcePath: episode.url,
             parentID: video.vodID,
             seasonNumber: nil,
             episodeNumber: nil,
@@ -87,15 +92,22 @@ enum MediaItemFactory {
             videoBitrate: nil,
             duration: nil,
             loudnessTrackGainDB: nil,
-            subtitleCodec: nil,
-            contentAdvisory: nil,
-            releaseDate: nil,
-            addedAt: video.updatedAt ?? Date(),
-            lastPlayedAt: nil,
+            loudnessAlbumGainDB: nil,
+            loudnessTrackPeak: nil,
+            loudnessAlbumPeak: nil,
             playCount: 0,
-            isWatched: false,
-            sourceID: video.sourceID,
-            serverId: nil
+            playPosition: 0,
+            playProgress: 0,
+            watched: false,
+            favorite: false,
+            watchlist: false,
+            externalID: nil,
+            metadataProvider: nil,
+            collectionTitle: video.type,
+            createdAt: video.updatedAt ?? Date(),
+            updatedAt: video.updatedAt ?? Date(),
+            lastPlayedAt: nil,
+            genre: video.type
         )
     }
 }

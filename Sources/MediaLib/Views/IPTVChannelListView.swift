@@ -180,8 +180,8 @@ struct IPTVChannelListView: View {
             return
         }
         
-        // 使用现有的 PlayerView 播放
-        appState.playMedia(item: mediaItem)
+        // 使用 AppState.play() 播放
+        appState.play(mediaItem)
     }
 }
 
