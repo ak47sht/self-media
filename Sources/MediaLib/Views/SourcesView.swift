@@ -1393,25 +1393,8 @@ struct SourceRowView: View {
         let isReachable = appState.sourceIsReachable(source)
         
         Group {
-            if source.sourceKind == .iptv {
-                NavigationLink {
-                    IPTVChannelListView(source: source)
-                        .environmentObject(appState)
-                } label: {
-                    sourceRowContent(isLockedPrivateSource: isLockedPrivateSource, isReachable: isReachable)
-                }
-                .buttonStyle(.plain)
-            } else if source.sourceKind == .vod {
-                NavigationLink {
-                    VODLibraryView(source: source)
-                        .environmentObject(appState)
-                } label: {
-                    sourceRowContent(isLockedPrivateSource: isLockedPrivateSource, isReachable: isReachable)
-                }
-                .buttonStyle(.plain)
-            } else {
-                sourceRowContent(isLockedPrivateSource: isLockedPrivateSource, isReachable: isReachable)
-            }
+            // VOD 和 IPTV 现在直接在侧边栏显示，这里只显示信息行
+            sourceRowContent(isLockedPrivateSource: isLockedPrivateSource, isReachable: isReachable)
         }
         .sheet(isPresented: $showingSettings) {
             SourceSettingsSheet(source: source)

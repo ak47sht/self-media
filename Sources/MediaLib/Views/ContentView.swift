@@ -141,6 +141,8 @@ enum SidebarDestination: Hashable, Identifiable, Sendable {
     case smartCollection(String)
     case manualCollection(String)
     case musicSmartPlaylist(String)
+    case vod(String)
+    case iptv(String)
     case health
     case tasks
     case sources
@@ -156,6 +158,8 @@ enum SidebarDestination: Hashable, Identifiable, Sendable {
         case .smartCollection(let collectionID): return "smart-collection-\(collectionID)"
         case .manualCollection(let collectionID): return "manual-collection-\(collectionID)"
         case .musicSmartPlaylist(let playlistID): return "music-smart-playlist-\(playlistID)"
+        case .vod(let sourceID): return "vod-\(sourceID)"
+        case .iptv(let sourceID): return "iptv-\(sourceID)"
         case .health: return "health"
         case .tasks: return "tasks"
         case .sources: return "sources"
@@ -223,6 +227,14 @@ enum SidebarDestination: Hashable, Identifiable, Sendable {
             let collectionID = String(storedID.dropFirst("manual-collection-".count))
             guard !collectionID.isEmpty else { return nil }
             self = .manualCollection(collectionID)
+        } else if storedID.hasPrefix("vod-") {
+            let sourceID = String(storedID.dropFirst("vod-".count))
+            guard !sourceID.isEmpty else { return nil }
+            self = .vod(sourceID)
+        } else if storedID.hasPrefix("iptv-") {
+            let sourceID = String(storedID.dropFirst("iptv-".count))
+            guard !sourceID.isEmpty else { return nil }
+            self = .iptv(sourceID)
         } else {
             return nil
         }
@@ -238,6 +250,8 @@ enum SidebarDestination: Hashable, Identifiable, Sendable {
         case .smartCollection: return "智能集合"
         case .manualCollection: return "集合"
         case .musicSmartPlaylist: return "智能歌单"
+        case .vod: return "视频点播"
+        case .iptv: return "直播频道"
         case .health: return "片库健康"
         case .tasks: return "任务中心"
         case .sources: return "媒体源"
@@ -255,6 +269,8 @@ enum SidebarDestination: Hashable, Identifiable, Sendable {
         case .smartCollection: return "sparkles.rectangle.stack"
         case .manualCollection: return "rectangle.stack"
         case .musicSmartPlaylist: return "music.note.list"
+        case .vod: return "play.rectangle.on.rectangle"
+        case .iptv: return "antenna.radiowaves.left.and.right"
         case .health: return "stethoscope"
         case .tasks: return "checklist"
         case .sources: return "externaldrive"
@@ -790,6 +806,16 @@ struct ContentView: View {
                     ForEach(appState.embySources) { source in
                         sidebarGroupSpacer
                         embySourceGroup(for: source)
+                    }
+                    
+                    // VOD 和 IPTV 资源也显示为独立的侧边栏项
+                    ForEach(appState.sources.filter { $0.sourceKind == .vod || $0.sourceKind == .iptv }) { source in
+                        sidebarGroupSpacer
+                        if source.sourceKind == .vod {
+                            sidebarRow(.vod(source.id))
+                        } else if source.sourceKind == .iptv {
+                            sidebarRow(.iptv(source.id))
+                        }
                     }
                 }
 
@@ -1332,6 +1358,12 @@ struct ContentView: View {
         if case .musicSmartPlaylist(let playlistID) = destination {
             return appState.musicSmartPlaylist(id: playlistID)?.name ?? "智能歌单"
         }
+        if case .vod(let sourceID) = destination {
+            return appState.sources.first(where: { $0.id == sourceID })?.name ?? "视频点播"
+        }
+        if case .iptv(let sourceID) = destination {
+            return appState.sources.first(where: { $0.id == sourceID })?.name ?? "直播频道"
+        }
         return destination.title
     }
 
@@ -1386,6 +1418,20 @@ struct ContentView: View {
             }
         case .embySection, .embyLibrary, .smartCollection, .manualCollection:
             LibraryView(destination: destination)
+        case .vod(let sourceID):
+            if let source = appState.sources.first(where: { $0.id == sourceID }) {
+                VODLibraryView(source: source)
+                    .environmentObject(appState)
+            } else {
+                EmptyStateView(title: "资源不存在", systemImage: "play.rectangle.on.rectangle", message: "该视频点播资源可能已被删除。")
+            }
+        case .iptv(let sourceID):
+            if let source = appState.sources.first(where: { $0.id == sourceID }) {
+                IPTVChannelListView(source: source)
+                    .environmentObject(appState)
+            } else {
+                EmptyStateView(title: "资源不存在", systemImage: "antenna.radiowaves.left.and.right", message: "该直播频道资源可能已被删除。")
+            }
         case .health:
             LibraryHealthCenterView()
         case .tasks:
