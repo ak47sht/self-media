@@ -39,7 +39,7 @@ struct VODLibraryView: View {
     
     var body: some View {
         // 编译时版本标记（用于确认部署版本）
-        let _ = DebugLog.log("VODLibraryView", "🔖 编译版本: 578a02c (2026-06-16 修复布局+分类+UA)")
+        let _ = DebugLog.log("VODLibraryView", "🔖 编译版本: 84ebfc1 (移除所有body内计算属性)")
         
         // 预计算分类相关数据，避免 body 内重复计算触发布局死循环
         let topCategories = categories.filter { $0.parentID == 0 }

@@ -14,7 +14,7 @@ struct VODDetailView: View {
     
     var body: some View {
         // 编译时版本标记（用于确认部署版本）
-        let _ = DebugLog.log("VODDetailView", "🔖 编译版本: 578a02c (2026-06-16 修复布局+分类+UA)")
+        let _ = DebugLog.log("VODDetailView", "🔖 编译版本: 84ebfc1 (移除所有body内计算属性)")
         
         // 预计算，避免 body 内重复访问计算属性
         let routes = video.playURLs
