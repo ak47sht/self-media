@@ -611,6 +611,8 @@ private struct AddMediaSourceWizardSheet: View {
                 return false
             case .iptv:
                 return false
+            case .vod:
+                return false
             }
         }
     }

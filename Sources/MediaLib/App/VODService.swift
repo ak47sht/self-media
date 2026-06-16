@@ -132,7 +132,7 @@ public class VODService {
         }
         
         sql += " ORDER BY updated_at DESC LIMIT ?"
-        bindings.append(.integer(Int64(limit)))
+        bindings.append(.int(Int64(limit)))
         
         return try db.query(sql, bindings: bindings) { (rs: SQLiteRow) -> VODVideo? in
             guard let sourceID = rs.string(0),

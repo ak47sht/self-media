@@ -451,7 +451,7 @@ final class AppState: ObservableObject {
     // 只在本次进程内记住队列弹层上次停留位置，避免跨启动恢复到旧队列偏移。
     var musicQueueScrollAnchorID: String?
     let directories: AppDirectories?
-    private let database: DatabaseManager?
+    let database: DatabaseManager?
     private let sourceRepository: SourceRepository?
     private let mediaRepository: MediaRepository?
     private let musicPlaylistRepository: MusicPlaylistRepository?

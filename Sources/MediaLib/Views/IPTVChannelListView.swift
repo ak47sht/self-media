@@ -13,9 +13,9 @@ struct IPTVChannelListView: View {
     @State private var isLoading = true
     @State private var errorMessage: String?
     
-    private var groups: [String] {
-        let allGroups = channels.compactMap { $0.group }.uniqued()
-        return allGroups.sorted()
+    private var availableGroups: [String] {
+        let groups = Set(channels.compactMap { $0.groupTitle })
+        return groups.sorted()
     }
     
     private var displayChannels: [IPTVChannel] {
@@ -23,14 +23,14 @@ struct IPTVChannelListView: View {
         
         // 按分组筛选
         if let group = selectedGroup {
-            result = result.filter { $0.group == group }
+            result = result.filter { $0.groupTitle == group }
         }
         
         // 按搜索文本筛选
         if !searchText.isEmpty {
             result = result.filter { channel in
                 channel.name.localizedCaseInsensitiveContains(searchText) ||
-                (channel.group?.localizedCaseInsensitiveContains(searchText) ?? false)
+                (channel.groupTitle?.localizedCaseInsensitiveContains(searchText) ?? false)
             }
         }
         
@@ -54,13 +54,13 @@ struct IPTVChannelListView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 
                 // 分组选择器
-                if !groups.isEmpty {
+                if !availableGroups.isEmpty {
                     Menu {
                         Button("全部分组") {
                             selectedGroup = nil
                         }
                         Divider()
-                        ForEach(groups, id: \.self) { group in
+                        ForEach(availableGroups, id: \.self) { group in
                             Button(group) {
                                 selectedGroup = group
                             }
