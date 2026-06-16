@@ -28,12 +28,7 @@ struct VODLibraryView: View {
     private var displayVideos: [VODVideo] {
         var result = videos
         
-        // 按类型筛选
-        if let type = selectedType {
-            result = result.filter { $0.type == type }
-        }
-        
-        // 按搜索文本筛选
+        // 按搜索文本筛选（本地筛选）
         if !searchText.isEmpty {
             result = result.filter { video in
                 video.name.localizedCaseInsensitiveContains(searchText) ||
@@ -198,6 +193,13 @@ struct VODLibraryView: View {
             if videos.isEmpty {
                 loadVideos(page: 1)
             }
+        }
+        .onChange(of: selectedType) { oldValue, newValue in
+            // 类型切换时重新从 API 加载第一页
+            videos = []
+            currentPage = 1
+            hasMorePages = true
+            loadVideos(page: 1)
         }
         .sheet(isPresented: $showingVideoDetail) {
             if let video = selectedVideo {
