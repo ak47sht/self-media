@@ -17,6 +17,9 @@ struct VODLibraryView: View {
     @State private var isLoadingMore = false
     @State private var hasMorePages = true
     
+    @State private var selectedVideo: VODVideo?
+    @State private var showingVideoDetail = false
+    
     private var types: [String] {
         let allTypes = videos.compactMap { $0.type }.uniqued()
         return allTypes.sorted()
@@ -151,7 +154,10 @@ struct VODLibraryView: View {
                         GridItem(.adaptive(minimum: 160, maximum: 200), spacing: 16)
                     ], spacing: 20) {
                         ForEach(displayVideos) { video in
-                            NavigationLink(value: AppNavDestination.vodDetail(video: video, source: source)) {
+                            Button {
+                                selectedVideo = video
+                                showingVideoDetail = true
+                            } label: {
                                 VideoCard(video: video)
                             }
                             .buttonStyle(.plain)
@@ -191,6 +197,12 @@ struct VODLibraryView: View {
         .onAppear {
             if videos.isEmpty {
                 loadVideos(page: 1)
+            }
+        }
+        .sheet(isPresented: $showingVideoDetail) {
+            if let video = selectedVideo {
+                VODDetailView(video: video, source: source)
+                    .environmentObject(appState)
             }
         }
     }
