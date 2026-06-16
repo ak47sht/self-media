@@ -359,6 +359,9 @@ struct MusicLibraryView: View {
     @State private var contentRefreshTask: Task<Void, Never>?
     @State private var searchRefreshTask: Task<Void, Never>?
     @State private var lyricsRefreshTask: Task<Void, Never>?
+    @State private var showingOnlineSearch = false
+    @State private var onlineSearchResults: [OnlineMusicSearchResult] = []
+    @State private var isSearchingOnline = false
 
     var body: some View {
         Group {

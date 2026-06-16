@@ -3243,7 +3243,6 @@ final class AppState: ObservableObject {
                 name: name,
                 path: urlScheme,
                 mediaType: .music,
-                sourceKind: .onlineMusic,
                 minimumFileSize: 0,
                 includeInMetadataFetch: false,
                 preferMetadataWriteToSource: false,
@@ -3256,7 +3255,7 @@ final class AppState: ObservableObject {
             
             alert = AppAlert(
                 title: "在线音乐源已添加",
-                message: ""\(name)" 已就绪，可在音乐播放界面中使用。"
+                message: "\"\(name)\" 已就绪，可在音乐播放界面中使用。"
             )
         } catch {
             showError("添加在线音乐源失败", error)
