@@ -2,7 +2,7 @@ import Foundation
 import SQLite3
 
 public final class DatabaseManager {
-    public static let currentSchemaVersion = 20
+    public static let currentSchemaVersion = 21
 
     private var db: OpaquePointer?
     private let queue = DispatchQueue(label: "MediaLib.DatabaseManager")
@@ -335,6 +335,13 @@ public final class DatabaseManager {
                 try execute("PRAGMA user_version = 20")
             }
             version = 20
+        }
+        if version < 21 {
+            try transaction {
+                try migrateToVersion21()
+                try execute("PRAGMA user_version = 21")
+            }
+            version = 21
         }
         guard version == Self.currentSchemaVersion else {
             throw DatabaseError.incompatibleSchema(found: version, supported: Self.currentSchemaVersion)
@@ -831,6 +838,39 @@ public final class DatabaseManager {
         try execute("CREATE INDEX IF NOT EXISTS index_vod_videos_source ON vod_videos_cache(source_id)")
         try execute("CREATE INDEX IF NOT EXISTS index_vod_videos_type ON vod_videos_cache(type)")
         try execute("CREATE INDEX IF NOT EXISTS index_vod_videos_year ON vod_videos_cache(year)")
+    }
+    
+    private func migrateToVersion21() throws {
+        // IPTV playback history table
+        try execute("""
+        CREATE TABLE IF NOT EXISTS iptv_playback_history (
+          channel_id TEXT NOT NULL,
+          source_id TEXT NOT NULL,
+          channel_name TEXT NOT NULL,
+          last_played_at INTEGER NOT NULL,
+          play_count INTEGER NOT NULL DEFAULT 1,
+          PRIMARY KEY(channel_id, source_id)
+        )
+        """)
+        try execute("CREATE INDEX IF NOT EXISTS index_iptv_history_last_played ON iptv_playback_history(last_played_at DESC)")
+        
+        // VOD playback history table
+        try execute("""
+        CREATE TABLE IF NOT EXISTS vod_playback_history (
+          vod_id TEXT NOT NULL,
+          source_id TEXT NOT NULL,
+          episode_name TEXT NOT NULL,
+          position REAL NOT NULL DEFAULT 0,
+          duration REAL NOT NULL DEFAULT 0,
+          progress REAL NOT NULL DEFAULT 0,
+          is_watched INTEGER NOT NULL DEFAULT 0,
+          last_played_at INTEGER NOT NULL,
+          play_count INTEGER NOT NULL DEFAULT 1,
+          PRIMARY KEY(vod_id, source_id, episode_name)
+        )
+        """)
+        try execute("CREATE INDEX IF NOT EXISTS index_vod_history_last_played ON vod_playback_history(last_played_at DESC)")
+        try execute("CREATE INDEX IF NOT EXISTS index_vod_history_unfinished ON vod_playback_history(is_watched, progress, last_played_at DESC)")
     }
 
     private func validateBackup(at backupURL: URL) throws {
