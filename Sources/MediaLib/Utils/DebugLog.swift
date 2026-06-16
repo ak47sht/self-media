@@ -22,7 +22,8 @@ enum DebugLog {
         let logMessage = "🎬 [\(fileName):\(line)] \(message)"
         
         // 输出到系统日志（Console.app 可查看）
-        logger.info("\(logMessage, privacy: .public)")
+        // 用 .notice（Default 级别），Console.app 默认即显示；info/debug 默认被隐藏
+        logger.notice("\(logMessage, privacy: .public)")
         
         // 同时输出到标准输出（Xcode 控制台）
         print(logMessage)
@@ -35,7 +36,8 @@ enum DebugLog {
         let logMessage = "🎬 [\(tag)] \(message)"
         
         // 输出到系统日志
-        logger.info("\(logMessage, privacy: .public)")
+        // 用 .notice（Default 级别），Console.app 默认即显示；info/debug 默认被隐藏
+        logger.notice("\(logMessage, privacy: .public)")
         
         // 输出到标准输出
         print(logMessage)
