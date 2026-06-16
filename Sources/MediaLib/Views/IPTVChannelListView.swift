@@ -218,7 +218,7 @@ private struct ChannelRow: View {
                         .foregroundStyle(.primary)
                     
                     HStack(spacing: 8) {
-                        if let group = channel.group {
+                        if let group = channel.groupTitle {
                             Text(group)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
