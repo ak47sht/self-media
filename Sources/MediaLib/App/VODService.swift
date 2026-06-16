@@ -39,11 +39,11 @@ public class VODService {
             URLQueryItem(name: "pg", value: String(page))
         ]
         
-        if let keyword = keyword, !keyword.isEmpty {
+        if let keyword = keyword {
             queryItems.append(URLQueryItem(name: "wd", value: keyword))
         }
         
-        if let typeID = typeID, !typeID.isEmpty {
+        if let typeID = typeID {
             queryItems.append(URLQueryItem(name: "t", value: typeID))
         }
         
@@ -53,26 +53,34 @@ public class VODService {
             throw VODServiceError.invalidURL
         }
         
-        // 拉取数据
+        // 发起请求
         let (data, _) = try await URLSession.shared.data(from: url)
         
-        // 解析 JSON
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let list = json["list"] as? [[String: Any]] else {
             throw VODServiceError.parseError
         }
         
-        // 转换为 VODVideo
+        // 解析视频列表
         let videos = list.compactMap { VODVideo.parseFromCMS(json: $0, sourceID: source.id) }
         
         // 缓存到数据库
-        try cacheVideos(videos, sourceID: source.id)
+        try cacheVideos(videos)
         
         return videos
     }
     
+    /// 拉取并缓存视频（便捷方法）
+    public func fetchAndCacheVideos(
+        from source: MediaSource,
+        page: Int = 1,
+        pageSize: Int = 100
+    ) async throws -> [VODVideo] {
+        return try await fetchVideos(from: source, page: page)
+    }
+    
     /// 缓存视频列表到数据库
-    private func cacheVideos(_ videos: [VODVideo], sourceID: String) throws {
+    private func cacheVideos(_ videos: [VODVideo]) throws {
         try db.transaction {
             for video in videos {
                 // 序列化 playURLs 为 JSON
@@ -88,7 +96,7 @@ public class VODService {
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     bindings: [
-                        .text(sourceID),
+                        .text(video.sourceID),
                         .text(video.vodID),
                         .text(video.name),
                         .text(video.type),
