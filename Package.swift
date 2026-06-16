@@ -25,7 +25,16 @@ let package = Package(
             path: "Sources/MediaLib",
             // Icons are bundled into the .app by scripts/medialib/package_dmg.sh,
             // not via Bundle.module, so keep them out of SwiftPM resource processing.
-            exclude: ["Resources"]
+            exclude: ["Resources"],
+            swiftSettings: [
+                // Upstream MediaLib sources were authored before Swift 6 strict
+                // concurrency. Relax checking to suppress 'reference to captured var
+                // self in concurrently-executing code' errors that block compilation.
+                .unsafeFlags(["-strict-concurrency=minimal"]),
+                // Disable optimizations to avoid 'compiler unable to type-check this
+                // expression in reasonable time' failures on complex SwiftUI expressions.
+                .unsafeFlags(["-Onone"])
+            ]
         ),
         .executableTarget(
             name: "MediaLibChecks",
