@@ -21,20 +21,21 @@ struct VODLibraryView: View {
     @State private var selectedVideo: VODVideo?
     @State private var showingVideoDetail = false
     
-    private var displayVideos: [VODVideo] {
-        var result = videos
-        
-        // 按搜索文本筛选（本地筛选）
-        if !searchText.isEmpty {
-            result = result.filter { video in
-                video.name.localizedCaseInsensitiveContains(searchText) ||
-                (video.actors?.localizedCaseInsensitiveContains(searchText) ?? false) ||
-                (video.director?.localizedCaseInsensitiveContains(searchText) ?? false)
-            }
-        }
-        
-        return result
-    }
+    // displayVideos 计算属性在 sheet 弹出时会触发布局死循环，暂时禁用本地搜索
+    // private var displayVideos: [VODVideo] {
+    //     var result = videos
+    //     
+    //     // 按搜索文本筛选（本地筛选）
+    //     if !searchText.isEmpty {
+    //         result = result.filter { video in
+    //             video.name.localizedCaseInsensitiveContains(searchText) ||
+    //             (video.actors?.localizedCaseInsensitiveContains(searchText) ?? false) ||
+    //             (video.director?.localizedCaseInsensitiveContains(searchText) ?? false)
+    //         }
+    //     }
+    //     
+    //     return result
+    // }
     
     private var topCategories: [VODCategory] {
         categories.filter { $0.parentID == 0 }
@@ -155,19 +156,13 @@ struct VODLibraryView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding()
-            } else if displayVideos.isEmpty {
+            } else if videos.isEmpty {
                 VStack(spacing: 16) {
-                    Image(systemName: searchText.isEmpty ? "film.stack" : "magnifyingglass")
+                    Image(systemName: "film.stack")
                         .font(.system(size: 48))
                         .foregroundStyle(.secondary)
-                    Text(searchText.isEmpty ? "暂无视频" : "无匹配结果")
+                    Text("暂无视频")
                         .font(.title3.bold())
-                    if !searchText.isEmpty {
-                        Button("清除搜索") {
-                            searchText = ""
-                        }
-                        .buttonStyle(.borderedProminent)
-                    }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -175,7 +170,7 @@ struct VODLibraryView: View {
                     LazyVGrid(columns: [
                         GridItem(.adaptive(minimum: 160, maximum: 200), spacing: 16)
                     ], spacing: 20) {
-                        ForEach(displayVideos) { video in
+                        ForEach(videos) { video in
                             Button {
                                 selectedVideo = video
                                 showingVideoDetail = true
