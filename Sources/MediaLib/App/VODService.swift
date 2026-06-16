@@ -65,9 +65,13 @@ public class VODService {
         
         DebugLog.log("VODService", "请求 VOD API: \(url.absoluteString)")
         
-        // 发起请求
+        // 发起请求（带 User-Agent 避免 403）
+        var request = URLRequest(url: url)
+        request.setValue("MediaLib/1.0", forHTTPHeaderField: "User-Agent")
+        request.timeoutInterval = 15
+        
         let startTime = Date()
-        let (data, _) = try await URLSession.shared.data(from: url)
+        let (data, _) = try await URLSession.shared.data(for: request)
         let elapsed = Date().timeIntervalSince(startTime)
         
         DebugLog.log("VODService", "API 响应耗时: \(String(format: "%.2f", elapsed))s, 数据大小: \(data.count) bytes")
@@ -130,7 +134,11 @@ public class VODService {
         
         DebugLog.log("VODService", "请求分类列表: \(url.absoluteString)")
         
-        let (data, _) = try await URLSession.shared.data(from: url)
+        var request = URLRequest(url: url)
+        request.setValue("MediaLib/1.0", forHTTPHeaderField: "User-Agent")
+        request.timeoutInterval = 15
+        
+        let (data, _) = try await URLSession.shared.data(for: request)
         
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let classArray = json["class"] as? [[String: Any]] else {
