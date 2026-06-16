@@ -210,8 +210,11 @@ struct VODLibraryView: View {
                             .buttonStyle(.plain)
                             .onAppear {
                                 // 滚动到倒数第5个时触发加载更多
-                                if let idx = videos.firstIndex(where: { $0.id == video.id }),
-                                   idx >= videos.count - 5 {
+                                // 注意：这里用 filteredVideos 判断，但实际加载的是 videos
+                                // 搜索时不应触发分页，只有显示全部时才分页
+                                if searchText.isEmpty,
+                                   let idx = filteredVideos.firstIndex(where: { $0.id == video.id }),
+                                   idx >= filteredVideos.count - 5 {
                                     loadMoreIfNeeded()
                                 }
                             }
@@ -255,10 +258,7 @@ struct VODLibraryView: View {
             if videos.isEmpty {
                 loadVideos(page: 1)
             }
-            // 初始化筛选结果
-            if filteredVideos.isEmpty && !videos.isEmpty {
-                filterVideos()
-            }
+            // filterVideos() 会被 .onChange(of: videos) 自动触发，无需手动调用
         }
         .onChange(of: selectedTypeID) { newValue in
             // 类型切换时重新从 API 加载第一页

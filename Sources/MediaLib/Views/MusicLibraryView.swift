@@ -387,10 +387,7 @@ struct MusicLibraryView: View {
         
         do {
             let service = OnlineMusicService()
-            guard let result = try await service.playURL(song: song, neteaseAPI: neteaseAPI, gdstudioAPI: gdstudioAPI) else {
-                appState.alert = AppAlert(title: "获取播放地址失败", message: "无法获取歌曲播放链接，请检查在线音乐源配置。")
-                return
-            }
+            let result = try await service.playURL(song: song, neteaseAPI: neteaseAPI, gdstudioAPI: gdstudioAPI)
             
             let tempItem = MediaItem(
                 id: song.id,
@@ -2587,17 +2584,13 @@ private struct OnlineMusicSearchSheet: View {
             
             do {
                 let service = OnlineMusicService()
-                if let result = try await service.search(query: query, neteaseAPI: neteaseAPI, gdstudioAPI: gdstudioAPI) {
-                    await MainActor.run {
-                        searchResults = result.songs
-                    }
-                } else {
-                    await MainActor.run {
-                        searchResults = []
-                    }
+                let result = try await service.search(query: query, neteaseAPI: neteaseAPI, gdstudioAPI: gdstudioAPI)
+                await MainActor.run {
+                    searchResults = result.songs
                 }
             } catch {
                 await MainActor.run {
+                    searchResults = []
                     appState.showError("搜索失败", error)
                 }
             }

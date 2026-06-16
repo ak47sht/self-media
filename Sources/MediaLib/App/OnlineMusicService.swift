@@ -47,7 +47,7 @@ public actor OnlineMusicService {
     // MARK: - 兼容旧 API 的方法
     
     /// 搜索音乐（兼容旧 API 签名）
-    public func search(query: String, neteaseAPI: String?, gdstudioAPI: String?) async throws -> SearchResult? {
+    public func search(query: String, neteaseAPI: String?, gdstudioAPI: String?) async throws -> SearchResult {
         // 优先使用 neteaseAPI，其次 gdstudioAPI，最后官方源
         let provider: OnlineMusicProvider
         if let apiBase = neteaseAPI {
@@ -63,7 +63,7 @@ public actor OnlineMusicService {
     }
     
     /// 获取播放地址（兼容旧 API 签名）
-    public func playURL(song: Song, neteaseAPI: String?, gdstudioAPI: String?) async throws -> (url: String, lyric: String?)? {
+    public func playURL(song: Song, neteaseAPI: String?, gdstudioAPI: String?) async throws -> (url: String, lyric: String?) {
         // 优先使用 neteaseAPI，其次 gdstudioAPI，最后官方源
         let provider: OnlineMusicProvider
         if let apiBase = neteaseAPI {
