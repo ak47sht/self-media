@@ -21,8 +21,8 @@ struct VODLibraryView: View {
     @State private var showingVideoDetail = false
     
     private var types: [String] {
-        let allTypes = videos.compactMap { $0.type }.uniqued()
-        return allTypes.sorted()
+        let allTypes = videos.compactMap { $0.type }
+        return Array(Set(allTypes)).sorted()
     }
     
     private var displayVideos: [VODVideo] {
