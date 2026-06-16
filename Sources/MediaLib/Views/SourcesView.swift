@@ -1383,8 +1383,36 @@ struct SourceRowView: View {
     var body: some View {
         let isLockedPrivateSource = source.mediaType == .privateCollection && !appState.privacyUnlocked
         let isReachable = appState.sourceIsReachable(source)
-
-        HStack(spacing: 14) {
+        
+        Group {
+            if source.sourceKind == .iptv {
+                NavigationLink {
+                    IPTVChannelListView(source: source)
+                        .environmentObject(appState)
+                } label: {
+                    sourceRowContent(isLockedPrivateSource: isLockedPrivateSource, isReachable: isReachable)
+                }
+                .buttonStyle(.plain)
+            } else if source.sourceKind == .vod {
+                NavigationLink {
+                    VODLibraryView(source: source)
+                        .environmentObject(appState)
+                } label: {
+                    sourceRowContent(isLockedPrivateSource: isLockedPrivateSource, isReachable: isReachable)
+                }
+                .buttonStyle(.plain)
+            } else {
+                sourceRowContent(isLockedPrivateSource: isLockedPrivateSource, isReachable: isReachable)
+            }
+        }
+        .sheet(isPresented: $showingSettings) {
+            SourceSettingsSheet(source: source)
+                .environmentObject(appState)
+        }
+    }
+    
+    @ViewBuilder
+    private func sourceRowContent(isLockedPrivateSource: Bool, isReachable: Bool) -> some View {        HStack(spacing: 14) {
             ZStack {
                 RoundedRectangle(cornerRadius: 8)
                     .fill(isReachable ? AppColors.selectedGlassTint.opacity(0.12) : Color.orange.opacity(0.14))
@@ -1492,10 +1520,6 @@ struct SourceRowView: View {
             if suppressing {
                 isHovering = false
             }
-        }
-        .sheet(isPresented: $showingSettings) {
-            SourceSettingsSheet(source: source)
-                .environmentObject(appState)
         }
     }
 
