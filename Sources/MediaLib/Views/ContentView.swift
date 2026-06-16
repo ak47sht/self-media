@@ -372,6 +372,7 @@ struct ContentView: View {
     }
 
     var body: some View {
+        let _ = print("[ContentView.body] 重算 \(Date().timeIntervalSince1970)")
         sheetDecorations(decoratedContent)
     }
 
@@ -1386,6 +1387,7 @@ struct ContentView: View {
 
     @ViewBuilder
     private func detailView(for destination: SidebarDestination) -> some View {
+        let _ = print("[detailView] destination=\(destination) \(Date().timeIntervalSince1970)")
         switch destination {
         case .home:
             HomeView(
@@ -1419,10 +1421,13 @@ struct ContentView: View {
         case .embySection, .embyLibrary, .smartCollection, .manualCollection:
             LibraryView(destination: destination)
         case .vod(let sourceID):
+            let _ = print("[detailView] .vod sourceID=\(sourceID), 查找 source...")
             if let source = appState.sources.first(where: { $0.id == sourceID }) {
+                let _ = print("[detailView] .vod 找到 source: \(source.name), 创建 VODLibraryView")
                 VODLibraryView(source: source)
                     .environmentObject(appState)
             } else {
+                let _ = print("[detailView] .vod 未找到 source")
                 EmptyStateView(title: "资源不存在", systemImage: "play.rectangle.on.rectangle", message: "该视频点播资源可能已被删除。")
             }
         case .iptv(let sourceID):
