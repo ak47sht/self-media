@@ -20,8 +20,12 @@ public class IPTVService {
             throw IPTVServiceError.missingConfiguration
         }
         
+        guard let subscriptionURL = config.subscriptionURL ?? config.apiBase else {
+            throw IPTVServiceError.missingSubscriptionURL
+        }
+        
         // 拉取并解析 M3U
-        let channels = try await M3UParser.fetch(from: config.apiBase, sourceID: source.id)
+        let channels = try await M3UParser.fetch(from: subscriptionURL, sourceID: source.id)
         
         // 聚合同名频道的多个 URL（多线路支持）
         let aggregated = aggregateChannels(channels)
@@ -143,13 +147,16 @@ public class IPTVService {
 public enum IPTVServiceError: LocalizedError {
     case invalidSourceType
     case missingConfiguration
+    case missingSubscriptionURL
     
     public var errorDescription: String? {
         switch self {
         case .invalidSourceType:
             return "媒体源类型不是 IPTV"
         case .missingConfiguration:
-            return "IPTV 源缺少配置信息"
+            return "缺少 IPTV 配置"
+        case .missingSubscriptionURL:
+            return "缺少订阅地址"
         }
     }
 }
