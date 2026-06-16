@@ -17,6 +17,9 @@ struct VODDetailView: View {
     private let episodesPerPage = 50
     
     var body: some View {
+        // 编译时版本标记（用于确认部署版本）
+        let _ = DebugLog.log("VODDetailView", "🔖 编译版本: 578a02c (2026-06-16 修复布局+分类+UA)")
+        
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 // 海报和基本信息

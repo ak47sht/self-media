@@ -49,6 +49,9 @@ struct VODLibraryView: View {
     }
     
     var body: some View {
+        // 编译时版本标记（用于确认部署版本）
+        let _ = DebugLog.log("VODLibraryView", "🔖 编译版本: 578a02c (2026-06-16 修复布局+分类+UA)")
+        
         VStack(spacing: 0) {
             // 顶部工具栏
             HStack(spacing: 12) {
