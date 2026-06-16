@@ -172,6 +172,7 @@ struct VODDetailView: View {
     }
     
     private func playVideo(episode: VODEpisode, route: String) {
+        // 创建 MediaItem 并播放
         let mediaItem = MediaItemFactory.makeMediaItem(from: video, episode: episode)
         appState.play(mediaItem)
     }

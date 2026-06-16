@@ -1,17 +1,24 @@
 import SwiftUI
 import MediaLibCore
 
-/// VOD 视频库视图
+/// VOD 视频库视图（支持分页加载）
 struct VODLibraryView: View {
     @EnvironmentObject private var appState: AppState
     let source: MediaSource
     
     @State private var videos: [VODVideo] = []
-    @State private var filteredVideos: [VODVideo] = []
     @State private var searchText = ""
     @State private var selectedType: String?
     @State private var isLoading = true
     @State private var errorMessage: String?
+    
+    // 分页状态
+    @State private var currentPage = 1
+    @State private var isLoadingMore = false
+    @State private var hasMorePages = true
+    
+    @State private var selectedVideo: VODVideo?
+    @State private var showingVideoDetail = false
     
     private var types: [String] {
         let allTypes = videos.compactMap { $0.type }.uniqued()
@@ -80,6 +87,20 @@ struct VODLibraryView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 8))
                     }
                 }
+                
+                // 刷新按钮
+                Button {
+                    reloadFromFirstPage()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.callout)
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(Color.black.opacity(0.2))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .disabled(isLoading || isLoadingMore)
             }
             .padding()
             
@@ -98,15 +119,15 @@ struct VODLibraryView: View {
                 VStack(spacing: 16) {
                     Image(systemName: "exclamationmark.triangle")
                         .font(.system(size: 48))
-                        .foregroundStyle(.red)
+                        .foregroundStyle(.secondary)
                     Text("加载失败")
-                        .font(.headline)
+                        .font(.title3.bold())
                     Text(error)
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
-                    Button("重新加载") {
-                        loadVideos()
+                    Button("重试") {
+                        loadVideos(page: 1)
                     }
                     .buttonStyle(.borderedProminent)
                 }
@@ -118,11 +139,12 @@ struct VODLibraryView: View {
                         .font(.system(size: 48))
                         .foregroundStyle(.secondary)
                     Text(searchText.isEmpty ? "暂无视频" : "无匹配结果")
-                        .font(.headline)
+                        .font(.title3.bold())
                     if !searchText.isEmpty {
                         Button("清除搜索") {
                             searchText = ""
                         }
+                        .buttonStyle(.borderedProminent)
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -130,14 +152,41 @@ struct VODLibraryView: View {
                 ScrollView {
                     LazyVGrid(columns: [
                         GridItem(.adaptive(minimum: 160, maximum: 200), spacing: 16)
-                    ], spacing: 16) {
+                    ], spacing: 20) {
                         ForEach(displayVideos) { video in
-                            NavigationLink {
-                                VODDetailView(video: video, source: source)
+                            Button {
+                                selectedVideo = video
+                                showingVideoDetail = true
                             } label: {
                                 VideoCard(video: video)
                             }
                             .buttonStyle(.plain)
+                            .onAppear {
+                                // 滚动到倒数第5个时触发加载更多
+                                if video.id == displayVideos.dropLast(4).last?.id {
+                                    loadMoreIfNeeded()
+                                }
+                            }
+                        }
+                        
+                        // 加载更多指示器
+                        if isLoadingMore {
+                            VStack(spacing: 8) {
+                                ProgressView()
+                                Text("加载更多...")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .gridCellColumns(2)
+                        } else if !hasMorePages && videos.count > 0 {
+                            Text("已加载全部 \(videos.count) 个视频")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity)
+                                .padding()
+                                .gridCellColumns(2)
                         }
                     }
                     .padding()
@@ -145,36 +194,69 @@ struct VODLibraryView: View {
             }
         }
         .navigationTitle(source.name)
-        .navigationSubtitle("\(displayVideos.count) 个视频")
         .onAppear {
             if videos.isEmpty {
-                loadVideos()
+                loadVideos(page: 1)
+            }
+        }
+        .sheet(isPresented: $showingVideoDetail) {
+            if let video = selectedVideo {
+                VODDetailView(video: video, source: source)
+                    .environmentObject(appState)
             }
         }
     }
     
-    private func loadVideos() {
+    // MARK: - 数据加载
+    
+    private func loadVideos(page: Int) {
         guard let db = appState.database else { return }
         
-        isLoading = true
+        if page == 1 {
+            isLoading = true
+            currentPage = 1
+            hasMorePages = true
+        }
+        
         errorMessage = nil
         
         Task {
             do {
                 let service = VODService(db: db)
-                let loaded = try service.loadCachedVideos(sourceID: source.id)
+                let loaded = try await service.fetchVideos(from: source, page: page)
                 
                 await MainActor.run {
-                    self.videos = loaded
+                    if page == 1 {
+                        self.videos = loaded
+                    } else {
+                        self.videos.append(contentsOf: loaded)
+                    }
+                    
+                    self.currentPage = page
+                    self.hasMorePages = loaded.count >= 100  // 如果返回满页，说明可能还有更多
                     self.isLoading = false
+                    self.isLoadingMore = false
                 }
             } catch {
                 await MainActor.run {
                     self.errorMessage = error.localizedDescription
                     self.isLoading = false
+                    self.isLoadingMore = false
                 }
             }
         }
+    }
+    
+    private func loadMoreIfNeeded() {
+        guard !isLoadingMore && !isLoading && hasMorePages else { return }
+        
+        isLoadingMore = true
+        loadVideos(page: currentPage + 1)
+    }
+    
+    private func reloadFromFirstPage() {
+        videos = []
+        loadVideos(page: 1)
     }
 }
 
@@ -186,39 +268,37 @@ private struct VideoCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             // 海报
-            if let picURL = video.pic, let url = URL(string: picURL) {
-                AsyncImage(url: url) { image in
+            AsyncImage(url: video.pic.flatMap { URL(string: $0) }) { phase in
+                switch phase {
+                case .empty:
+                    Rectangle()
+                        .fill(Color.gray.opacity(0.3))
+                        .overlay {
+                            ProgressView()
+                        }
+                case .success(let image):
                     image
                         .resizable()
-                        .aspectRatio(2/3, contentMode: .fill)
-                } placeholder: {
+                        .aspectRatio(contentMode: .fill)
+                case .failure:
                     Rectangle()
-                        .fill(Color.black.opacity(0.2))
+                        .fill(Color.gray.opacity(0.3))
                         .overlay {
-                            Image(systemName: "film")
-                                .font(.largeTitle)
+                            Image(systemName: "photo")
                                 .foregroundStyle(.secondary)
                         }
+                @unknown default:
+                    EmptyView()
                 }
-                .frame(height: 240)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-            } else {
-                Rectangle()
-                    .fill(Color.black.opacity(0.2))
-                    .frame(height: 240)
-                    .overlay {
-                        Image(systemName: "film")
-                            .font(.largeTitle)
-                            .foregroundStyle(.secondary)
-                    }
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
             }
+            .frame(height: 240)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
             
             // 标题
             Text(video.name)
                 .font(.callout.weight(.medium))
                 .lineLimit(2)
-                .foregroundStyle(.primary)
+                .multilineTextAlignment(.leading)
             
             // 元信息
             HStack(spacing: 4) {
@@ -228,24 +308,14 @@ private struct VideoCard: View {
                         .foregroundStyle(.secondary)
                 }
                 if let year = video.year {
-                    if video.type != nil {
-                        Text("·")
-                            .foregroundStyle(.secondary)
-                    }
+                    Text("·")
+                        .foregroundStyle(.secondary)
                     Text(year)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
             }
         }
-    }
-}
-
-// MARK: - Array Extension
-
-private extension Array where Element: Hashable {
-    func uniqued() -> [Element] {
-        var seen = Set<Element>()
-        return filter { seen.insert($0).inserted }
+        .frame(width: 160)
     }
 }

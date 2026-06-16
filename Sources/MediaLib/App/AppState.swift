@@ -3350,11 +3350,12 @@ final class AppState: ObservableObject {
         let service = VODService(db: db)
         
         do {
+            // 只拉取第一页，快速响应
             let videos = try await service.fetchAndCacheVideos(from: source, page: 1, pageSize: 100)
             await MainActor.run {
                 alert = AppAlert(
                     title: "视频导入成功",
-                    message: "已导入 \(videos.count) 个视频（首页）"
+                    message: "已导入 \(videos.count) 个视频（首页），更多内容将在浏览时加载"
                 )
             }
         } catch {
