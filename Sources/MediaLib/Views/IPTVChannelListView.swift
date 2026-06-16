@@ -172,7 +172,7 @@ struct IPTVChannelListView: View {
     }
     
     private func playChannel(_ channel: IPTVChannel) {
-        guard let mediaItem = MediaItemFactory.makeMediaItem(from: channel, urlIndex: 0) else {
+        guard let playableMedia = MediaItemFactory.makePlayableMedia(from: channel) else {
             appState.alert = AppAlert(
                 title: "播放失败",
                 message: "无法创建播放项"
@@ -180,8 +180,9 @@ struct IPTVChannelListView: View {
             return
         }
         
-        // 使用 AppState.play() 播放
-        appState.play(mediaItem)
+        // TODO: 使用 PlayableMedia 支持多线路自动切换
+        // 当前暂时使用第一条线路
+        appState.play(playableMedia.currentItem)
     }
 }
 
