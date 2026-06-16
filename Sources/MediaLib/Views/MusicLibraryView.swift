@@ -363,69 +363,7 @@ struct MusicLibraryView: View {
     @State private var onlineSearchResults: [OnlineMusicService.Song] = []
     
     var body: some View {
-        contentBody
-            .suppressListHighlight()
-            .background(AppPageBackground())
-            .navigationTitle(section.title)
-            .onAppear {
-                loadViewState(for: section)
-                refreshVisibleContent(for: section)
-                presentSectionTipIfNeeded(section)
-            }
-            .onChange(of: searchText) { _ in
-                drilldown = nil
-                scheduleSearchRefresh()
-            }
-            .onChange(of: section.id) { newSectionID in
-                guard let newSection = MusicLibrarySection(rawValue: newSectionID) else { return }
-                searchRefreshTask?.cancel()
-                lyricsRefreshTask?.cancel()
-                drilldown = nil
-                loadViewState(for: newSection, reset: true)
-                refreshVisibleContent(for: newSection, deferred: true)
-                presentSectionTipIfNeeded(newSection)
-            }
-            .onChange(of: sortMode) { _ in
-                saveViewState(for: section)
-                searchRefreshTask?.cancel()
-                drilldown = nil
-                refreshVisibleContent(for: section, deferred: true)
-            }
-            .onChange(of: sortOrder) { _ in
-                saveViewState(for: section)
-                searchRefreshTask?.cancel()
-                drilldown = nil
-                refreshVisibleContent(for: section, deferred: true)
-            }
-            .onChange(of: filterMode) { _ in
-                saveViewState(for: section)
-                searchRefreshTask?.cancel()
-                drilldown = nil
-                refreshVisibleContent(for: section, deferred: true)
-            }
-            .onChange(of: appState.libraryRevision) { _ in
-                searchRefreshTask?.cancel()
-                if drilldown == nil {
-                    refreshVisibleContent(for: section, deferred: true)
-                } else {
-                    refreshActivePlaylistDrilldown()
-                }
-            }
-            .onChange(of: appState.favoriteRevision) { _ in
-                if filterMode == .favorites || section == .favorites {
-                    searchRefreshTask?.cancel()
-                    if drilldown == nil {
-                        refreshVisibleContent(for: section, deferred: true)
-                    } else {
-                        refreshActivePlaylistDrilldown()
-                    }
-                }
-            }
-            .onDisappear {
-                contentRefreshTask?.cancel()
-                searchRefreshTask?.cancel()
-                lyricsRefreshTask?.cancel()
-            }
+        bodyWithLifecycle
             .sheet(item: $metadataItem) { item in
                 MetadataSearchView(item: item)
                     .environmentObject(appState)
@@ -503,6 +441,72 @@ struct MusicLibraryView: View {
                 scrollingBody
             }
         }
+    }
+    
+    private var bodyWithLifecycle: some View {
+        contentBody
+            .suppressListHighlight()
+            .background(AppPageBackground())
+            .navigationTitle(section.title)
+            .onAppear {
+                loadViewState(for: section)
+                refreshVisibleContent(for: section)
+                presentSectionTipIfNeeded(section)
+            }
+            .onChange(of: searchText) { _ in
+                drilldown = nil
+                scheduleSearchRefresh()
+            }
+            .onChange(of: section.id) { newSectionID in
+                guard let newSection = MusicLibrarySection(rawValue: newSectionID) else { return }
+                searchRefreshTask?.cancel()
+                lyricsRefreshTask?.cancel()
+                drilldown = nil
+                loadViewState(for: newSection, reset: true)
+                refreshVisibleContent(for: newSection, deferred: true)
+                presentSectionTipIfNeeded(newSection)
+            }
+            .onChange(of: sortMode) { _ in
+                saveViewState(for: section)
+                searchRefreshTask?.cancel()
+                drilldown = nil
+                refreshVisibleContent(for: section, deferred: true)
+            }
+            .onChange(of: sortOrder) { _ in
+                saveViewState(for: section)
+                searchRefreshTask?.cancel()
+                drilldown = nil
+                refreshVisibleContent(for: section, deferred: true)
+            }
+            .onChange(of: filterMode) { _ in
+                saveViewState(for: section)
+                searchRefreshTask?.cancel()
+                drilldown = nil
+                refreshVisibleContent(for: section, deferred: true)
+            }
+            .onChange(of: appState.libraryRevision) { _ in
+                searchRefreshTask?.cancel()
+                if drilldown == nil {
+                    refreshVisibleContent(for: section, deferred: true)
+                } else {
+                    refreshActivePlaylistDrilldown()
+                }
+            }
+            .onChange(of: appState.favoriteRevision) { _ in
+                if filterMode == .favorites || section == .favorites {
+                    searchRefreshTask?.cancel()
+                    if drilldown == nil {
+                        refreshVisibleContent(for: section, deferred: true)
+                    } else {
+                        refreshActivePlaylistDrilldown()
+                    }
+                }
+            }
+            .onDisappear {
+                contentRefreshTask?.cancel()
+                searchRefreshTask?.cancel()
+                lyricsRefreshTask?.cancel()
+            }
     }
     
     private func presentSectionTipIfNeeded(_ targetSection: MusicLibrarySection) {
