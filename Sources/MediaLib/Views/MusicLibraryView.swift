@@ -360,7 +360,7 @@ struct MusicLibraryView: View {
     @State private var searchRefreshTask: Task<Void, Never>?
     @State private var lyricsRefreshTask: Task<Void, Never>?
     @State private var showingOnlineSearch = false
-    @State private var onlineSearchResults: [OnlineMusicSearchResult] = []
+    @State private var onlineSearchResults: [OnlineMusicService.Song] = []
     @State private var isSearchingOnline = false
 
     var body: some View {
@@ -2426,29 +2426,56 @@ struct MusicSmartPlaylistDetailView: View {
         }
     }
     
-    private func playOnlineTrack(_ result: OnlineMusicSearchResult) async {
-        guard let source = appState.sources.first(where: { $0.sourceKind == .onlineMusic }),
-              let config = source.onlineConfig else {
-            appState.alert = AppAlert(title: "无可用的在线音乐源", message: "请先添加在线音乐源。")
+    private func playOnlineTrack(_ song: OnlineMusicService.Song) async {
+        // Extract API endpoints from online music sources
+        let onlineSources = appState.sources.filter { $0.sourceKind == .onlineMusic }
+        guard !onlineSources.isEmpty else {
+            await MainActor.run {
+                appState.alert = AppAlert(title: "无可用的在线音乐源", message: "请先添加在线音乐源。")
+            }
             return
+        }
+        
+        var neteaseAPI: String?
+        var gdstudioAPI: String?
+        
+        for source in onlineSources {
+            guard let config = source.onlineConfig else { continue }
+            switch config.kind {
+            case .onlineMusicNetease:
+                neteaseAPI = config.apiBase
+            case .onlineMusicGDStudio:
+                gdstudioAPI = config.apiBase
+            default:
+                break
+            }
         }
         
         do {
             let service = OnlineMusicService()
-            let playURL = try await service.playURL(songID: result.providerSongID, config: config)
+            guard let result = try await service.playURL(song: song, neteaseAPI: neteaseAPI, gdstudioAPI: gdstudioAPI) else {
+                await MainActor.run {
+                    appState.alert = AppAlert(title: "获取播放地址失败", message: "无法获取歌曲播放链接，请检查在线音乐源配置。")
+                }
+                return
+            }
             
             // Create a temporary MediaItem for playback
             let tempItem = MediaItem(
-                id: result.id,
-                path: playURL,
-                name: result.name,
+                id: song.id,
+                path: result.url,
+                name: song.name,
                 mediaType: .music,
-                sourceID: source.id
+                sourceID: onlineSources.first?.id ?? ""
             )
             
-            appState.playMusic([tempItem], startIndex: 0)
+            await MainActor.run {
+                appState.playMusic([tempItem], startIndex: 0)
+            }
         } catch {
-            appState.showError("获取播放地址失败", error)
+            await MainActor.run {
+                appState.showError("获取播放地址失败", error)
+            }
         }
     }
 }
@@ -2459,9 +2486,9 @@ private struct OnlineMusicSearchSheet: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.dismiss) private var dismiss
     @State private var searchText = ""
-    @State private var searchResults: [OnlineMusicSearchResult] = []
+    @State private var searchResults: [OnlineMusicService.Song] = []
     @State private var isSearching = false
-    let onPlay: (OnlineMusicSearchResult) -> Void
+    let onPlay: (OnlineMusicService.Song) -> Void
     
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -2502,7 +2529,7 @@ private struct OnlineMusicSearchSheet: View {
                         .padding(.vertical, 60)
                     } else {
                         ForEach(searchResults) { result in
-                            OnlineMusicResultRow(result: result, onPlay: onPlay)
+                            OnlineMusicResultRow(song: result, onPlay: onPlay)
                         }
                     }
                 }
@@ -2527,30 +2554,45 @@ private struct OnlineMusicSearchSheet: View {
         isSearching = true
         
         Task {
-            defer { isSearching = false }
+            defer { 
+                Task { @MainActor in
+                    isSearching = false
+                }
+            }
             
-            guard let source = appState.sources.first(where: { $0.sourceKind == .onlineMusic }),
-                  let config = source.onlineConfig else {
+            // Extract API endpoints from online music sources
+            let onlineSources = appState.sources.filter { $0.sourceKind == .onlineMusic }
+            guard !onlineSources.isEmpty else {
                 await MainActor.run {
                     appState.alert = AppAlert(title: "无可用的在线音乐源", message: "请先添加在线音乐源。")
                 }
                 return
             }
             
+            var neteaseAPI: String?
+            var gdstudioAPI: String?
+            
+            for source in onlineSources {
+                guard let config = source.onlineConfig else { continue }
+                switch config.kind {
+                case .onlineMusicNetease:
+                    neteaseAPI = config.apiBase
+                case .onlineMusicGDStudio:
+                    gdstudioAPI = config.apiBase
+                default:
+                    break
+                }
+            }
+            
             do {
                 let service = OnlineMusicService()
-                let results = try await service.search(query: query, config: config)
-                
-                await MainActor.run {
-                    searchResults = results.map { item in
-                        OnlineMusicSearchResult(
-                            name: item["name"] as? String ?? "",
-                            artist: item["artist"] as? String ?? "",
-                            album: item["album"] as? String,
-                            duration: item["duration"] as? Int,
-                            provider: config.provider ?? "unknown",
-                            providerSongID: item["id"] as? String ?? ""
-                        )
+                if let result = try await service.search(query: query, neteaseAPI: neteaseAPI, gdstudioAPI: gdstudioAPI) {
+                    await MainActor.run {
+                        searchResults = result.songs
+                    }
+                } else {
+                    await MainActor.run {
+                        searchResults = []
                     }
                 }
             } catch {
@@ -2563,13 +2605,13 @@ private struct OnlineMusicSearchSheet: View {
 }
 
 private struct OnlineMusicResultRow: View {
-    let result: OnlineMusicSearchResult
-    let onPlay: (OnlineMusicSearchResult) -> Void
+    let song: OnlineMusicService.Song
+    let onPlay: (OnlineMusicService.Song) -> Void
     @State private var isHovering = false
     
     var body: some View {
         Button {
-            onPlay(result)
+            onPlay(song)
         } label: {
             HStack(spacing: 12) {
                 Image(systemName: "music.note")
@@ -2580,16 +2622,16 @@ private struct OnlineMusicResultRow: View {
                     .cornerRadius(8)
                 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(result.name)
+                    Text(song.name)
                         .font(.callout.weight(.medium))
                         .lineLimit(1)
                     
                     HStack(spacing: 6) {
-                        Text(result.artist)
+                        Text(song.displayArtist)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                         
-                        if let album = result.album, !album.isEmpty {
+                        if let album = song.album, !album.isEmpty {
                             Text("·")
                                 .foregroundStyle(.secondary.opacity(0.5))
                             Text(album)
@@ -2597,7 +2639,7 @@ private struct OnlineMusicResultRow: View {
                                 .foregroundStyle(.secondary)
                         }
                         
-                        if let duration = result.duration {
+                        if let duration = song.duration {
                             Text("·")
                                 .foregroundStyle(.secondary.opacity(0.5))
                             Text(formatDuration(duration))
