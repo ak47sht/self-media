@@ -4,6 +4,7 @@ import MediaLibCore
 /// VOD 视频详情视图
 struct VODDetailView: View {
     @EnvironmentObject private var appState: AppState
+    @Environment(\.dismiss) private var dismiss
     let video: VODVideo
     let source: MediaSource
     
@@ -21,8 +22,9 @@ struct VODDetailView: View {
         // 预计算，避免 body 内重复访问计算属性
         let routes = video.playURLs
         
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
+        ZStack(alignment: .topTrailing) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
                 // 海报和基本信息
                 HStack(alignment: .top, spacing: 20) {
                     // 海报
@@ -216,6 +218,23 @@ struct VODDetailView: View {
             }
             .padding()
         }
+        
+        // 关闭按钮（右上角）
+        Button {
+            dismiss()
+        } label: {
+            Image(systemName: "xmark.circle.fill")
+                .font(.title2)
+                .foregroundStyle(.secondary)
+                .background(
+                    Circle()
+                        .fill(.ultraThinMaterial)
+                        .frame(width: 32, height: 32)
+                )
+        }
+        .buttonStyle(.plain)
+        .padding(20)
+    }
         .navigationTitle("视频详情")
         .onAppear {
             DebugLog.log("VODDetailView", "打开详情页")
