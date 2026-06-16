@@ -7853,8 +7853,9 @@ final class MpvPlayerController: ObservableObject {
         // 观察加载失败（特别是在线音乐 URL 无效时）
         audioStatusObservation?.invalidate()
         audioStatusObservation = playerItem.observe(\.status, options: [.new]) { [weak self] item, _ in
+            guard let self = self else { return }
             Task { @MainActor in
-                guard let self, self.playbackGeneration == generation else { return }
+                guard self.playbackGeneration == generation else { return }
                 if item.status == .failed {
                     let errorMsg = item.error?.localizedDescription ?? "未知错误"
                     DebugLog.log("PlayerView", "❌ AVPlayerItem 加载失败: \(errorMsg)")
@@ -8024,8 +8025,9 @@ final class MpvPlayerController: ObservableObject {
         observeAudioEnd(for: playerItem, generation: generation)
         audioStatusObservation?.invalidate()
         audioStatusObservation = playerItem.observe(\.status, options: [.new]) { [weak self] obsItem, _ in
+            guard let self = self else { return }
             Task { @MainActor in
-                guard let self, self.playbackGeneration == generation else { return }
+                guard self.playbackGeneration == generation else { return }
                 if obsItem.status == .failed {
                     let errorMsg = obsItem.error?.localizedDescription ?? "未知错误"
                     DebugLog.log("PlayerView", "❌ 切歌后 AVPlayerItem 加载失败: \(errorMsg)")
