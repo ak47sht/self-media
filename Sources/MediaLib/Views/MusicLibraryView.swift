@@ -472,58 +472,7 @@ struct MusicLibraryView: View {
                 onPlay: { song in
                     showingOnlineSearch = false
                     Task {
-                        // Extract API endpoints from online music sources
-                        let onlineSources = appState.sources.filter { $0.sourceKind == .onlineMusic }
-                        guard !onlineSources.isEmpty else {
-                            await MainActor.run {
-                                appState.alert = AppAlert(title: "无可用的在线音乐源", message: "请先添加在线音乐源。")
-                            }
-                            return
-                        }
-                        
-                        var neteaseAPI: String?
-                        var gdstudioAPI: String?
-                        
-                        for source in onlineSources {
-                            guard let config = source.onlineConfig else { continue }
-                            switch config.kind {
-                            case .onlineMusicNetease:
-                                neteaseAPI = config.apiBase
-                            case .onlineMusicGDStudio:
-                                gdstudioAPI = config.apiBase
-                            default:
-                                break
-                            }
-                        }
-                        
-                        do {
-                            let service = OnlineMusicService()
-                            guard let result = try await service.playURL(song: song, neteaseAPI: neteaseAPI, gdstudioAPI: gdstudioAPI) else {
-                                await MainActor.run {
-                                    appState.alert = AppAlert(title: "获取播放地址失败", message: "无法获取歌曲播放链接，请检查在线音乐源配置。")
-                                }
-                                return
-                            }
-                            
-                            // Create a temporary MediaItem for playback
-                            let tempItem = MediaItem(
-                                id: song.id,
-                                type: .track,
-                                title: song.name,
-                                artist: song.artist,
-                                album: song.album,
-                                filePath: result.url,
-                                sourcePath: onlineSources.first?.path
-                            )
-                            
-                            await MainActor.run {
-                                appState.play(tempItem)
-                            }
-                        } catch {
-                            await MainActor.run {
-                                appState.showError("获取播放地址失败", error)
-                            }
-                        }
+                        await handlePlayOnlineSong(song)
                     }
                 }
             )
@@ -2474,6 +2423,52 @@ struct MusicSmartPlaylistDetailView: View {
                 onSearchMetadata: { metadataItem = $0 },
                 onCreatePlaylist: { playlistCreationRequest = $0 }
             )
+        }
+    }
+    
+    @MainActor
+    private func handlePlayOnlineSong(_ song: OnlineMusicService.Song) async {
+        let onlineSources = appState.sources.filter { $0.sourceKind == .onlineMusic }
+        guard !onlineSources.isEmpty else {
+            appState.alert = AppAlert(title: "无可用的在线音乐源", message: "请先添加在线音乐源。")
+            return
+        }
+        
+        var neteaseAPI: String?
+        var gdstudioAPI: String?
+        
+        for source in onlineSources {
+            guard let config = source.onlineConfig else { continue }
+            switch config.kind {
+            case .onlineMusicNetease:
+                neteaseAPI = config.apiBase
+            case .onlineMusicGDStudio:
+                gdstudioAPI = config.apiBase
+            default:
+                break
+            }
+        }
+        
+        do {
+            let service = OnlineMusicService()
+            guard let result = try await service.playURL(song: song, neteaseAPI: neteaseAPI, gdstudioAPI: gdstudioAPI) else {
+                appState.alert = AppAlert(title: "获取播放地址失败", message: "无法获取歌曲播放链接，请检查在线音乐源配置。")
+                return
+            }
+            
+            let tempItem = MediaItem(
+                id: song.id,
+                type: .track,
+                title: song.name,
+                artist: song.artist,
+                album: song.album,
+                filePath: result.url,
+                sourcePath: onlineSources.first?.path
+            )
+            
+            appState.play(tempItem)
+        } catch {
+            appState.showError("获取播放地址失败", error)
         }
     }
     
