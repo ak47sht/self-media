@@ -546,7 +546,7 @@ struct MetadataSearchService {
         guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw MetadataSearchError.invalidResponse }
         let decoded = try JSONDecoder().decode(NeteaseSearchResponse.self, from: data)
         return (decoded.result?.songs ?? []).prefix(12).map { song in
-            let artist = song.artists?.compactMap(\.name as String?).joined(separator: ", ")
+            let artist = song.artists?.map(\.name).joined(separator: ", ")
             let cover = song.album?.picUrl
                 .map { $0.replacingOccurrences(of: "http://", with: "https://") }
                 .map { "\($0)?param=600y600" }
@@ -582,7 +582,7 @@ struct MetadataSearchService {
         guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw MetadataSearchError.invalidResponse }
         let decoded = try JSONDecoder().decode(QQSearchResponse.self, from: data)
         return (decoded.data?.song?.list ?? []).prefix(12).map { song in
-            let artist = song.singer?.compactMap(\.name as String?).joined(separator: ", ")
+            let artist = song.singer?.map(\.name).joined(separator: ", ")
             let cover = song.albummid.flatMap { mid in
                 mid.isEmpty ? nil : "https://y.qq.com/music/photo_new/T002R500x500M000\(mid).jpg"
             }

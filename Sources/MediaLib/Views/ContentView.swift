@@ -356,6 +356,10 @@ struct ContentView: View {
     }
 
     var body: some View {
+        sheetDecorations(decoratedContent)
+    }
+
+    private var decoratedContent: some View {
         mainContent
         .background {
             AppPageBackground(includeDirectionalLight: false)
@@ -431,6 +435,11 @@ struct ContentView: View {
             VideoPlayerWindowPresenter(item: videoPlayerBinding)
                 .frame(width: 0, height: 0)
         }
+    }
+
+    @ViewBuilder
+    private func sheetDecorations<Content: View>(_ content: Content) -> some View {
+        content
         .sheet(item: $appState.quickPreviewItem) { item in
             QuickPreviewView(item: item)
                 .environmentObject(appState)
