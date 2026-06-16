@@ -46,7 +46,7 @@ public class IPTVService {
             ORDER BY group_title, name
             """,
             bindings: [.text(sourceID)]
-        ) { rs in
+        ) { (rs: SQLiteRow) -> IPTVChannel? in
             guard let channelID = rs.string(0),
                   let name = rs.string(1) else {
                 return nil
