@@ -172,11 +172,8 @@ struct VODDetailView: View {
     }
     
     private func playVideo(episode: VODEpisode, route: String) {
-        // TODO: 集成 libmpv 播放器
-        appState.alert = AppAlert(
-            title: "播放 \(episode.name)",
-            message: "播放器集成开发中...\n线路: \(route)\nURL: \(episode.url)"
-        )
+        let mediaItem = MediaItemFactory.makeMediaItem(from: video, episode: episode)
+        appState.playMedia(item: mediaItem)
     }
 }
 

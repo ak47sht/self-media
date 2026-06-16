@@ -172,11 +172,16 @@ struct IPTVChannelListView: View {
     }
     
     private func playChannel(_ channel: IPTVChannel) {
-        // TODO: 集成 libmpv 播放器
-        appState.alert = AppAlert(
-            title: "播放 \(channel.name)",
-            message: "播放器集成开发中...\n线路数: \(channel.urls.count)"
-        )
+        guard let mediaItem = MediaItemFactory.makeMediaItem(from: channel, urlIndex: 0) else {
+            appState.alert = AppAlert(
+                title: "播放失败",
+                message: "无法创建播放项"
+            )
+            return
+        }
+        
+        // 使用现有的 PlayerView 播放
+        appState.playMedia(item: mediaItem)
     }
 }
 
