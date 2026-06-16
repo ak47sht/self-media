@@ -116,7 +116,7 @@ public class VODService {
     }
     
     /// 从缓存加载视频列表
-    public func loadCachedVideos(sourceID: String, type: String? = nil, limit: Int = 100) throws -> [VODVideo] {
+    public func loadCachedVideos(sourceID: String, type: String? = nil, limit: Int = 10000) throws -> [VODVideo] {
         var sql = """
             SELECT source_id, vod_id, name, type, year, area, lang, pic,
                    actors, director, content, play_urls_json, updated_at

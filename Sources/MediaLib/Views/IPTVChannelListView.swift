@@ -172,17 +172,14 @@ struct IPTVChannelListView: View {
     }
     
     private func playChannel(_ channel: IPTVChannel) {
-        guard let playableMedia = MediaItemFactory.makePlayableMedia(from: channel) else {
+        guard let mediaItem = MediaItemFactory.makeMediaItem(from: channel, urlIndex: 0) else {
             appState.alert = AppAlert(
-                title: "播放失败",
-                message: "无法创建播放项"
+                title: "无法播放",
+                message: "频道 \(channel.name) 没有可用的播放地址"
             )
             return
         }
-        
-        // TODO: 使用 PlayableMedia 支持多线路自动切换
-        // 当前暂时使用第一条线路
-        appState.play(playableMedia.currentItem)
+        appState.play(mediaItem)
     }
 }
 

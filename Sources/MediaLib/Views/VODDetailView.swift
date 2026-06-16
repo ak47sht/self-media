@@ -172,16 +172,9 @@ struct VODDetailView: View {
     }
     
     private func playVideo(episode: VODEpisode, route: String) {
-        // 使用多线路系统
-        let playableMedia = MediaItemFactory.makePlayableMedia(
-            from: video,
-            episode: episode,
-            allRoutes: video.playURLs
-        )
-        
-        // TODO: 使用 PlayableMedia 支持多线路自动切换
-        // 当前暂时使用第一条线路
-        appState.play(playableMedia.currentItem)
+        // 创建 MediaItem 并播放
+        let mediaItem = MediaItemFactory.makeMediaItem(from: video, episode: episode)
+        appState.play(mediaItem)
     }
 }
 
