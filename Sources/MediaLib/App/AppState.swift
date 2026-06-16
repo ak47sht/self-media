@@ -3221,6 +3221,47 @@ final class AppState: ObservableObject {
             showError("添加媒体源失败", error)
         }
     }
+    
+    func addOnlineMusicSource(name: String, config: OnlineSourceConfig) {
+        guard let sourceRepository else { return }
+        
+        do {
+            // Generate URL based on provider
+            let urlScheme: String
+            switch config.kind {
+            case .onlineMusicNetease:
+                urlScheme = "onlinemusic://netease"
+            case .onlineMusicGDStudio:
+                urlScheme = "onlinemusic://gdstudio"
+            case .onlineMusicCustom:
+                urlScheme = "onlinemusic://custom"
+            default:
+                urlScheme = "onlinemusic://unknown"
+            }
+            
+            let source = MediaSource(
+                name: name,
+                path: urlScheme,
+                mediaType: .music,
+                sourceKind: .onlineMusic,
+                minimumFileSize: 0,
+                includeInMetadataFetch: false,
+                preferMetadataWriteToSource: false,
+                includeInHealthCheck: false,
+                onlineConfig: config
+            )
+            
+            try sourceRepository.save(source)
+            reload()
+            
+            alert = AppAlert(
+                title: "在线音乐源已添加",
+                message: ""\(name)" 已就绪，可在音乐播放界面中使用。"
+            )
+        } catch {
+            showError("添加在线音乐源失败", error)
+        }
+    }
 
     func connectEmbyServer(
         server: String,
