@@ -869,10 +869,13 @@ struct ContentView: View {
                 appState.selectedItemReturnAnchorID = nil
             }
         } detail: {
+            let _ = print("[NavigationSplitView detail] 开始渲染 detail，selection=\(String(describing: selection)) \(Date().timeIntervalSince1970)")
             ZStack {
                 if let startupError = appState.startupError {
+                    let _ = print("[NavigationSplitView detail] 分支: startupError")
                     StartupErrorView(message: startupError)
                 } else if let selectedItem = appState.selectedItem {
+                    let _ = print("[NavigationSplitView detail] 分支: selectedItem \(selectedItem.title)")
                     let destination = selection ?? .home
                     DetailView(
                         item: selectedItem,
@@ -880,6 +883,7 @@ struct ContentView: View {
                         sourceSystemImage: destination.systemImage
                     )
                 } else {
+                    let _ = print("[NavigationSplitView detail] 分支: detailView")
                     detailView(for: selection ?? .home, vodSource: vodSource, iptvSource: iptvSource, canDisplayPrivateItems: canDisplayPrivateItems, musicSmartPlaylist: musicSmartPlaylist)
                 }
             }
