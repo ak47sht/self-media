@@ -158,7 +158,9 @@ struct VODLibraryView: View {
                             .buttonStyle(.plain)
                             .onAppear {
                                 // 滚动到倒数第5个时触发加载更多
-                                if video.id == displayVideos.dropLast(4).last?.id {
+                                // 用 videos 数组避免重复计算 displayVideos（会触发布局死循环）
+                                if let idx = videos.firstIndex(where: { $0.id == video.id }),
+                                   idx >= videos.count - 5 {
                                     loadMoreIfNeeded()
                                 }
                             }
