@@ -5282,11 +5282,18 @@ final class AppState: ObservableObject {
     }
 
     func play(_ item: MediaItem, preserveSelection: Bool = false) {
+        DebugLog.log("AppState", "▶️ play() 被调用")
+        DebugLog.log("AppState", "  title: \(item.title)")
+        DebugLog.log("AppState", "  filePath: \(item.filePath ?? "nil")")
+        DebugLog.log("AppState", "  sourcePath: \(item.sourcePath ?? "nil")")
+        
         if item.filePath == nil, let firstEpisode = children(for: item).first {
+            DebugLog.log("AppState", "  filePath 为 nil，尝试播放第一个子项")
             play(firstEpisode, preserveSelection: preserveSelection)
             return
         }
         guard item.filePath != nil else {
+            DebugLog.log("AppState", "  ❌ filePath 为 nil，无法播放")
             alert = AppAlert(title: "无法播放", message: "此媒体没有可播放文件。")
             return
         }
@@ -6123,10 +6130,12 @@ final class AppState: ObservableObject {
     }
 
     private func playPreparedItem(_ item: MediaItem, preserveSelection: Bool) {
+        DebugLog.log("AppState", "playPreparedItem: \(item.title), type: \(item.type.rawValue)")
         if item.type == .music {
             incrementMusicPlayCount(item)
         }
         let playerMode = item.type == .music ? settings.musicDefaultPlayer : settings.videoDefaultPlayer
+        DebugLog.log("AppState", "  播放器模式: \(playerMode)")
         if playerMode == .external {
             openExternally(item)
         } else {
@@ -6134,6 +6143,7 @@ final class AppState: ObservableObject {
                 prepareMusicQueue(for: item)
             }
             presentBuiltInPlayer(item, preserveSelection: preserveSelection)
+            DebugLog.log("AppState", "  已调用 presentBuiltInPlayer")
         }
     }
 

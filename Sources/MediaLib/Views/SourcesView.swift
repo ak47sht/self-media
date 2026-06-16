@@ -779,6 +779,9 @@ private struct AddMediaSourceWizardSheet: View {
     }
     
     private func addIPTVSource() {
+        DebugLog.log("SourcesView", "添加 IPTV 源: \(iptvName)")
+        DebugLog.log("SourcesView", "  URL: \(iptvURL)")
+        
         let config = OnlineSourceConfig(
             kind: .iptv,
             provider: "m3u",
@@ -798,6 +801,9 @@ private struct AddMediaSourceWizardSheet: View {
     }
     
     private func addVODSource() {
+        DebugLog.log("SourcesView", "添加 VOD 源: \(vodName)")
+        DebugLog.log("SourcesView", "  API URL: \(vodAPIURL)")
+        
         let config = OnlineSourceConfig(
             kind: .vodJSONAPI,
             provider: "cms",

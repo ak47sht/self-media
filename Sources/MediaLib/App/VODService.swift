@@ -53,16 +53,28 @@ public class VODService {
             throw VODServiceError.invalidURL
         }
         
-        // 发起请求
-        let (data, _) = try await URLSession.shared.data(from: url)
+        DebugLog.log("VODService", "请求 VOD API: \(url.absoluteString)")
         
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let list = json["list"] as? [[String: Any]] else {
+        // 发起请求
+        let startTime = Date()
+        let (data, _) = try await URLSession.shared.data(from: url)
+        let elapsed = Date().timeIntervalSince(startTime)
+        
+        DebugLog.log("VODService", "API 响应耗时: \(String(format: "%.2f", elapsed))s, 数据大小: \(data.count) bytes")
+        
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            DebugLog.log("VODService", "❌ JSON 解析失败")
+            throw VODServiceError.parseError
+        }
+        
+        guard let list = json["list"] as? [[String: Any]] else {
+            DebugLog.log("VODService", "❌ 响应中缺少 'list' 字段")
             throw VODServiceError.parseError
         }
         
         // 解析视频列表
         let videos = list.compactMap { VODVideo.parseFromCMS(json: $0, sourceID: source.id) }
+        DebugLog.log("VODService", "解析成功: \(videos.count) 个视频 (原始数据 \(list.count) 条)")
         
         // 缓存到数据库
         try cacheVideos(videos)

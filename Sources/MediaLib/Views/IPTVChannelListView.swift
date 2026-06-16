@@ -172,7 +172,9 @@ struct IPTVChannelListView: View {
     }
     
     private func playChannel(_ channel: IPTVChannel) {
+        DebugLog.log("IPTVChannelListView", "播放频道: \(channel.name) (共 \(channel.urls.count) 条线路)")
         guard let mediaItem = MediaItemFactory.makeMediaItem(from: channel, urlIndex: 0) else {
+            DebugLog.log("IPTVChannelListView", "❌ 创建 MediaItem 失败: \(channel.name)")
             appState.alert = AppAlert(
                 title: "无法播放",
                 message: "频道 \(channel.name) 没有可用的播放地址"

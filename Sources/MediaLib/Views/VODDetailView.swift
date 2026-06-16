@@ -214,23 +214,23 @@ struct VODDetailView: View {
         }
         .navigationTitle("视频详情")
         .onAppear {
-            print("🎬 [VODDetailView] 打开详情页")
-            print("   视频: \(video.name)")
-            print("   线路数: \(routes.count)")
+            DebugLog.log("VODDetailView", "打开详情页")
+            DebugLog.log("VODDetailView", "  视频: \(video.name)")
+            DebugLog.log("VODDetailView", "  线路数: \(routes.count)")
             if !routes.isEmpty {
-                print("   总剧集数: \(routes.map { $0.episodes.count })")
+                let episodeCounts = routes.map { $0.episodes.count }
+                DebugLog.log("VODDetailView", "  各线路剧集数: \(episodeCounts)")
             }
             
             if selectedRouteIndex == nil && !routes.isEmpty {
                 selectedRouteIndex = 0
-                print("   自动选择第一条线路")
+                DebugLog.log("VODDetailView", "  自动选择第一条线路")
             }
         }
         .onChange(of: selectedRouteIndex) { oldValue, newValue in
-            // 切换线路时重置剧集分页到第一页
             if let newIdx = newValue, newIdx < routes.count {
                 let route = routes[newIdx]
-                print("🎬 [VODDetailView] 切换线路: \(route.name) (共 \(route.episodes.count) 集)")
+                DebugLog.log("VODDetailView", "切换线路: \(route.name) (共 \(route.episodes.count) 集)")
             }
             episodePage = 0
         }
@@ -239,24 +239,26 @@ struct VODDetailView: View {
                 let totalEps = routes[idx].episodes.count
                 let startEp = newValue * episodesPerPage + 1
                 let endEp = min((newValue + 1) * episodesPerPage, totalEps)
-                print("🎬 [VODDetailView] 剧集分页: 第 \(newValue + 1) 页 (\(startEp)-\(endEp) / \(totalEps))")
+                DebugLog.log("VODDetailView", "剧集分页: 第 \(newValue + 1) 页 (\(startEp)-\(endEp) / \(totalEps))")
             }
         }
     }
     
     private func playVideo(episode: VODEpisode, route: String) {
-        print("🎬 [VODDetailView] 开始播放")
-        print("   视频: \(video.name)")
-        print("   剧集: \(episode.name)")
-        print("   线路: \(route)")
-        print("   URL: \(episode.url)")
+        DebugLog.log("VODDetailView", "▶️ 开始播放")
+        DebugLog.log("VODDetailView", "  视频: \(video.name)")
+        DebugLog.log("VODDetailView", "  剧集: \(episode.name)")
+        DebugLog.log("VODDetailView", "  线路: \(route)")
+        DebugLog.log("VODDetailView", "  URL: \(episode.url)")
         
         // 创建 MediaItem 并播放
         let mediaItem = MediaItemFactory.makeMediaItem(from: video, episode: episode)
-        print("   MediaItem 已创建: \(mediaItem.title)")
+        DebugLog.log("VODDetailView", "  MediaItem 已创建: \(mediaItem.title)")
+        DebugLog.log("VODDetailView", "  MediaItem.sourcePath: \(mediaItem.sourcePath)")
+        DebugLog.log("VODDetailView", "  MediaItem.filePath: \(mediaItem.filePath)")
         
         appState.play(mediaItem)
-        print("   已调用 appState.play()")
+        DebugLog.log("VODDetailView", "  已调用 appState.play()")
     }
 }
 

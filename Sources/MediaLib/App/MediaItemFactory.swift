@@ -13,6 +13,8 @@ enum MediaItemFactory {
         guard urlIndex < channel.urls.count else { return nil }
         let playURL = channel.urls[urlIndex]
         
+        DebugLog.log("MediaItemFactory", "创建 IPTV MediaItem: \(channel.name) (URL index: \(urlIndex)/\(channel.urls.count))")
+        
         return MediaItem(
             id: "\(channel.sourceID)_\(channel.channelID)_\(urlIndex)",
             type: .movie,  // IPTV 直播使用 movie 类型
@@ -65,6 +67,9 @@ enum MediaItemFactory {
     ///   - episode: 剧集信息
     /// - Returns: 可播放的 MediaItem
     static func makeMediaItem(from video: VODVideo, episode: VODEpisode) -> MediaItem {
+        DebugLog.log("MediaItemFactory", "创建 VOD MediaItem: \(video.name) - \(episode.name)")
+        DebugLog.log("MediaItemFactory", "  URL: \(episode.url)")
+        
         return MediaItem(
             id: "\(video.sourceID)_\(video.vodID)_\(episode.name)",
             type: .episode,  // VOD 剧集使用 episode 类型
