@@ -7,10 +7,10 @@ struct VODDetailView: View {
     let video: VODVideo
     let source: MediaSource
     
-    @State private var selectedRoute: String?
+    @State private var selectedRouteIndex: Int?
     
-    private var routes: [String] {
-        Array(video.playUrls.keys).sorted()
+    private var routes: [VODPlayLine] {
+        video.playURLs
     }
     
     var body: some View {
@@ -124,34 +124,36 @@ struct VODDetailView: View {
                         LazyVGrid(columns: [
                             GridItem(.adaptive(minimum: 100), spacing: 12)
                         ], spacing: 12) {
-                            ForEach(routes, id: \.self) { route in
+                            ForEach(Array(routes.enumerated()), id: \.offset) { index, route in
                                 RouteButton(
-                                    route: route,
-                                    isSelected: selectedRoute == route,
-                                    episodeCount: video.playUrls[route]?.count ?? 0
+                                    route: route.name,
+                                    isSelected: selectedRouteIndex == index,
+                                    episodeCount: route.episodes.count
                                 ) {
-                                    selectedRoute = route
+                                    selectedRouteIndex = index
                                 }
                             }
                         }
                         
                         // 选中线路的剧集列表
-                        if let selectedRoute = selectedRoute,
-                           let episodes = video.playUrls[selectedRoute] {
+                        if let selectedIndex = selectedRouteIndex,
+                           selectedIndex < routes.count {
+                            let selectedRoute = routes[selectedIndex]
+                            
                             Divider()
                             
-                            Text("剧集 (\(episodes.count))")
+                            Text("剧集 (\(selectedRoute.episodes.count))")
                                 .font(.headline)
                             
                             LazyVGrid(columns: [
                                 GridItem(.adaptive(minimum: 80), spacing: 12)
                             ], spacing: 12) {
-                                ForEach(Array(episodes.enumerated()), id: \.offset) { index, episode in
+                                ForEach(Array(selectedRoute.episodes.enumerated()), id: \.offset) { index, episode in
                                     EpisodeButton(
                                         title: episode.name,
                                         index: index + 1
                                     ) {
-                                        playVideo(episode: episode, route: selectedRoute)
+                                        playVideo(episode: episode, route: selectedRoute.name)
                                     }
                                 }
                             }
@@ -163,13 +165,13 @@ struct VODDetailView: View {
         }
         .navigationTitle("视频详情")
         .onAppear {
-            if selectedRoute == nil && !routes.isEmpty {
-                selectedRoute = routes.first
+            if selectedRouteIndex == nil && !routes.isEmpty {
+                selectedRouteIndex = 0
             }
         }
     }
     
-    private func playVideo(episode: VODVideo.Episode, route: String) {
+    private func playVideo(episode: VODEpisode, route: String) {
         // TODO: 集成 libmpv 播放器
         appState.alert = AppAlert(
             title: "播放 \(episode.name)",
