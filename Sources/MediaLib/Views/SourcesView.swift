@@ -1294,6 +1294,12 @@ struct SourceRowView: View {
             return "network"
         case .local:
             return "externaldrive.fill"
+        case .iptv:
+            return "tv"
+        case .vod:
+            return "play.rectangle.on.rectangle"
+        case .onlineMusic:
+            return "music.note.list"
         }
     }
 
