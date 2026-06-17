@@ -5376,7 +5376,6 @@ final class AppState: ObservableObject {
                         
                         var preparedItem = item
                         preparedItem.filePath = realURL
-                        self.cachePlayableItem(preparedItem, for: item)
                         self.playPreparedItem(preparedItem, preserveSelection: preserveSelection)
                     } catch {
                         DebugLog.log("AppState", "  ❌ 解析失败: \(error.localizedDescription)")
