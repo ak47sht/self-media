@@ -7,16 +7,16 @@ struct VODDetailView: View {
     @Environment(\.dismiss) private var dismiss
     let video: VODVideo
     let source: MediaSource
-    
+
     @State private var selectedRouteIndex: Int?
     @State private var episodePage = 0  // 剧集分页，每页 50 集
-    
+
     private let episodesPerPage = 50
-    
+
     var body: some View {
         // 预计算，避免 body 内重复访问计算属性
         let routes = video.playURLs
-        
+
         ZStack(alignment: .topTrailing) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
@@ -39,42 +39,42 @@ struct VODDetailView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 12))
                         .shadow(radius: 8)
                     }
-                    
+
                     // 基本信息
                     VStack(alignment: .leading, spacing: 12) {
                         Text(video.name)
                             .font(.title2.weight(.bold))
-                        
+
                         if let type = video.type {
                             Label(type, systemImage: "film")
                                 .font(.callout)
                                 .foregroundStyle(.secondary)
                         }
-                        
+
                         if let year = video.year {
                             Label(year, systemImage: "calendar")
                                 .font(.callout)
                                 .foregroundStyle(.secondary)
                         }
-                        
+
                         if let area = video.area {
                             Label(area, systemImage: "globe")
                                 .font(.callout)
                                 .foregroundStyle(.secondary)
                         }
-                        
+
                         if let lang = video.lang {
                             Label(lang, systemImage: "speaker.wave.2")
                                 .font(.callout)
                                 .foregroundStyle(.secondary)
                         }
-                        
+
                         Spacer()
                     }
                 }
-                
+
                 Divider()
-                
+
                 // 演员和导演
                 if let actors = video.actors, !actors.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
@@ -85,7 +85,7 @@ struct VODDetailView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                
+
                 if let director = video.director, !director.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("导演")
@@ -95,11 +95,11 @@ struct VODDetailView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                
+
                 // 简介
                 if let content = video.content, !content.isEmpty {
                     Divider()
-                    
+
                     VStack(alignment: .leading, spacing: 8) {
                         Text("简介")
                             .font(.headline)
@@ -108,14 +108,14 @@ struct VODDetailView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                
+
                 Divider()
-                
+
                 // 播放线路
                 VStack(alignment: .leading, spacing: 12) {
                     Text("播放线路 (\(routes.count))")
                         .font(.headline)
-                    
+
                     if routes.isEmpty {
                         Text("暂无播放线路")
                             .font(.callout)
@@ -138,27 +138,27 @@ struct VODDetailView: View {
                                 }
                             }
                         }
-                        
+
                         // 选中线路的剧集列表
                         if let selectedIndex = selectedRouteIndex,
                            selectedIndex < routes.count {
                             let selectedRoute = routes[selectedIndex]
                             let totalEpisodes = selectedRoute.episodes.count
-                            
+
                             Divider()
-                            
+
                             HStack {
                                 Text("剧集 (\(totalEpisodes))")
                                     .font(.headline)
-                                
+
                                 Spacer()
-                                
+
                                 // 分页控制（仅当剧集超过 episodesPerPage 时显示）
                                 if totalEpisodes > episodesPerPage {
                                     let totalPages = (totalEpisodes + episodesPerPage - 1) / episodesPerPage
                                     let startEp = episodePage * episodesPerPage + 1
                                     let endEp = min((episodePage + 1) * episodesPerPage, totalEpisodes)
-                                    
+
                                     HStack(spacing: 12) {
                                         Button {
                                             if episodePage > 0 {
@@ -170,11 +170,11 @@ struct VODDetailView: View {
                                         }
                                         .disabled(episodePage == 0)
                                         .buttonStyle(.plain)
-                                        
+
                                         Text("\(startEp)-\(endEp)")
                                             .font(.caption)
                                             .foregroundStyle(.secondary)
-                                        
+
                                         Button {
                                             if episodePage < totalPages - 1 {
                                                 episodePage += 1
@@ -188,12 +188,12 @@ struct VODDetailView: View {
                                     }
                                 }
                             }
-                            
+
                             // 计算当前页的剧集范围
                             let startIndex = episodePage * episodesPerPage
                             let endIndex = min(startIndex + episodesPerPage, totalEpisodes)
                             let pageEpisodes = Array(selectedRoute.episodes[startIndex..<endIndex])
-                            
+
                             LazyVGrid(columns: [
                                 GridItem(.adaptive(minimum: 80), spacing: 12)
                             ], spacing: 12) {
@@ -213,7 +213,7 @@ struct VODDetailView: View {
             }
             .padding()
         }
-        
+
         // 关闭按钮（右上角）
         Button {
             dismiss()
@@ -242,8 +242,8 @@ struct VODDetailView: View {
         }
         .task {
             if selectedRouteIndex == nil && !routes.isEmpty {
-                selectedRouteIndex = 0
-                DebugLog.log("VODDetailView", "  自动选择第一条线路")
+                selectedRouteIndex = preferredInitialRouteIndex(in: routes)
+                DebugLog.log("VODDetailView", "  自动选择线路: \(selectedRouteIndex ?? 0)")
             }
         }
         .onChange(of: selectedRouteIndex) { newIdx in
@@ -262,20 +262,29 @@ struct VODDetailView: View {
             }
         }
     }
-    
+
+    private func preferredInitialRouteIndex(in routes: [VODPlayLine]) -> Int {
+        routes.firstIndex { route in
+            route.episodes.contains { episode in
+                let lowercased = episode.url.lowercased()
+                return lowercased.contains(".m3u8") || lowercased.contains(".mp4")
+            }
+        } ?? 0
+    }
+
     private func playVideo(episode: VODEpisode, route: String) {
         DebugLog.log("VODDetailView", "▶️ 开始播放")
         DebugLog.log("VODDetailView", "  视频: \(video.name)")
         DebugLog.log("VODDetailView", "  剧集: \(episode.name)")
         DebugLog.log("VODDetailView", "  线路: \(route)")
         DebugLog.log("VODDetailView", "  URL: \(episode.url)")
-        
+
         // 创建 MediaItem 并播放
         let mediaItem = MediaItemFactory.makeMediaItem(from: video, episode: episode, sourceName: source.name)
         DebugLog.log("VODDetailView", "  MediaItem 已创建: \(mediaItem.title)")
         DebugLog.log("VODDetailView", "  MediaItem.sourcePath: \(mediaItem.sourcePath)")
         DebugLog.log("VODDetailView", "  MediaItem.filePath: \(mediaItem.filePath)")
-        
+
         appState.play(mediaItem)
         DebugLog.log("VODDetailView", "  已调用 appState.play()")
     }
@@ -288,7 +297,7 @@ private struct RouteButton: View {
     let isSelected: Bool
     let episodeCount: Int
     let action: () -> Void
-    
+
     var body: some View {
         Button(action: action) {
             VStack(spacing: 4) {
@@ -318,7 +327,7 @@ private struct EpisodeButton: View {
     let title: String
     let index: Int
     let action: () -> Void
-    
+
     var body: some View {
         Button(action: action) {
             Text(title.isEmpty ? "第\(index)集" : title)

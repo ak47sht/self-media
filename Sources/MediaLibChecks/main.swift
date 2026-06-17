@@ -53,6 +53,16 @@ check(!AppSettings().videoShowRemainingTime, "Video remaining time display shoul
 check(AppSettings().videoResumeRewindSeconds == 5, "Video resume rewind should default to five seconds")
 check(AppSettings().videoMarkerSkipBehavior == .prompt, "Video marker skip should default to a manual prompt")
 check(AppSettings().videoDoubleClickFullscreen, "Video double click fullscreen should be enabled by default")
+
+let vodPlayFrom = "liangzi$$$lzm3u8"
+let vodPlayURL = "第01集$https://v.lzcdn27.com/share/257deb66f5366aab34a23d5fd0571da4$$$第01集$https://v.lzcdn27.com/20260616/21024_6ca8fbd9/index.m3u8"
+let parsedLines = VODPlayLine.parse(from: vodPlayURL, playFrom: vodPlayFrom)
+check(parsedLines.count == 2, "VOD play lines should split by $$$ when vod_play_from is present")
+check(parsedLines[0].name == "liangzi", "First VOD play line should keep declared source name")
+check(parsedLines[1].name == "lzm3u8", "Second VOD play line should keep declared source name")
+check(parsedLines[0].episodes.first?.name == "第01集", "Episode name should stay intact")
+check(parsedLines[1].episodes.first?.url.hasSuffix("index.m3u8"), "Playable m3u8 URL should stay intact")
+
 check(!AppSettings().videoMouseWheelVolumeEnabled, "Video mouse wheel volume should be opt-in")
 check(AppSettings().videoHardwareDecodingMode == .safe, "Video hardware decoding should default to the compatible mode")
 check(AppSettings().videoDebandMode == .off, "Video deband should be disabled by default")

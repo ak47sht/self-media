@@ -142,6 +142,7 @@ private class WebViewCoordinator: NSObject, WKNavigationDelegate {
     private var pendingResult: Result<String, Error>? = nil
     private var timeoutTask: Task<Void, Never>?
     private var didFinish = false
+    private var extractionRetryCount = 0
 
     init(webView: WKWebView, targetURL: String) {
         self.webView = webView
@@ -205,49 +206,60 @@ private class WebViewCoordinator: NSObject, WKNavigationDelegate {
     // MARK: - WKNavigationDelegate
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        // 页面加载完成，执行 JavaScript 提取视频 URL
+        evaluateStreamExtraction(on: webView)
+    }
+
+    private func evaluateStreamExtraction(on webView: WKWebView) {
         let js = """
         (function() {
-            // 尝试多种方式提取视频 URL
+            function isPlayableUrl(value) {
+                if (typeof value !== 'string' || value.length === 0) { return false; }
+                if (value.indexOf('blob:') === 0) { return false; }
+                return value.indexOf('.m3u8') !== -1 || value.indexOf('.mp4') !== -1;
+            }
 
-            // 1. 查找 video 标签的 src
             var videoEl = document.querySelector('video');
-            if (videoEl && videoEl.src) {
+            if (videoEl && isPlayableUrl(videoEl.src)) {
                 return videoEl.src;
             }
 
-            // 2. 查找 video source 标签
             var sourceEl = document.querySelector('video source');
-            if (sourceEl && sourceEl.src) {
+            if (sourceEl && isPlayableUrl(sourceEl.src)) {
                 return sourceEl.src;
             }
 
-            // 3. 从全局变量中提取（常见的播放器变量名）
             var commonVars = ['video_url', 'videoUrl', 'playUrl', 'play_url', 'url', 'src', 'video'];
             for (var i = 0; i < commonVars.length; i++) {
                 var val = window[commonVars[i]];
-                if (typeof val === 'string' && (val.indexOf('.m3u8') !== -1 || val.indexOf('.mp4') !== -1)) {
+                if (isPlayableUrl(val)) {
                     return val;
                 }
             }
 
-            // 4. 从脚本内容中提取 URL（正则匹配）
             var scripts = document.getElementsByTagName('script');
             for (var i = 0; i < scripts.length; i++) {
                 var content = scripts[i].textContent || scripts[i].innerText;
-                // 匹配 m3u8 URL
                 var m3u8Match = content.match(/https?:\\/\\/[^\\s"'<>]+\\.m3u8[^\\s"'<>]*/);
                 if (m3u8Match) {
                     return m3u8Match[0];
                 }
-                // 匹配 mp4 URL
                 var mp4Match = content.match(/https?:\\/\\/[^\\s"'<>]+\\.mp4[^\\s"'<>]*/);
                 if (mp4Match) {
                     return mp4Match[0];
                 }
             }
 
-            return null;
+            if (window.performance && typeof window.performance.getEntriesByType === 'function') {
+                var entries = window.performance.getEntriesByType('resource') || [];
+                for (var j = entries.length - 1; j >= 0; j--) {
+                    var resourceUrl = entries[j] && entries[j].name;
+                    if (isPlayableUrl(resourceUrl)) {
+                        return resourceUrl;
+                    }
+                }
+            }
+
+            return '';
         })();
         """
 
@@ -262,8 +274,21 @@ private class WebViewCoordinator: NSObject, WKNavigationDelegate {
             if let urlString = result as? String, !urlString.isEmpty {
                 self.resumeWithSuccess(urlString)
             } else {
-                self.resumeWithError(NSError(domain: "VODURLResolver", code: -3, userInfo: [NSLocalizedDescriptionKey: "无法从网页中提取视频流 URL"]))
+                self.scheduleExtractionRetry(on: webView)
             }
+        }
+    }
+
+    private func scheduleExtractionRetry(on webView: WKWebView) {
+        guard !didFinish else { return }
+        guard extractionRetryCount < 10 else {
+            resumeWithError(NSError(domain: "VODURLResolver", code: -3, userInfo: [NSLocalizedDescriptionKey: "无法从网页中提取视频流 URL"]))
+            return
+        }
+        extractionRetryCount += 1
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self, weak webView] in
+            guard let self = self, let webView = webView, !self.didFinish else { return }
+            self.evaluateStreamExtraction(on: webView)
         }
     }
 

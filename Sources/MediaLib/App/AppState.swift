@@ -3233,10 +3233,10 @@ final class AppState: ObservableObject {
             showError("添加媒体源失败", error)
         }
     }
-    
+
     func addOnlineMusicSource(name: String, config: OnlineSourceConfig) {
         guard let sourceRepository else { return }
-        
+
         do {
             // Generate URL based on provider
             let urlScheme: String
@@ -3250,7 +3250,7 @@ final class AppState: ObservableObject {
             default:
                 urlScheme = "onlinemusic://unknown"
             }
-            
+
             let source = MediaSource(
                 name: name,
                 path: urlScheme,
@@ -3261,10 +3261,10 @@ final class AppState: ObservableObject {
                 includeInHealthCheck: false,
                 onlineConfig: config
             )
-            
+
             try sourceRepository.save(source)
             reload()
-            
+
             alert = AppAlert(
                 title: "在线音乐源已添加",
                 message: "\"\(name)\" 已就绪，可在音乐播放界面中使用。"
@@ -3273,10 +3273,10 @@ final class AppState: ObservableObject {
             showError("添加在线音乐源失败", error)
         }
     }
-    
+
     func addIPTVSource(name: String, config: OnlineSourceConfig) {
         guard let sourceRepository else { return }
-        
+
         do {
             let source = MediaSource(
                 name: name,
@@ -3288,15 +3288,15 @@ final class AppState: ObservableObject {
                 includeInHealthCheck: false,
                 onlineConfig: config
             )
-            
+
             try sourceRepository.save(source)
             reload()
-            
+
             // 异步拉取并缓存频道列表
             Task {
                 await fetchIPTVChannels(for: source)
             }
-            
+
             alert = AppAlert(
                 title: "IPTV 源已添加",
                 message: "\"\(name)\" 正在拉取频道列表..."
@@ -3305,11 +3305,11 @@ final class AppState: ObservableObject {
             showError("添加 IPTV 源失败", error)
         }
     }
-    
+
     private func fetchIPTVChannels(for source: MediaSource) async {
         guard let db = database else { return }
         let service = IPTVService(db: db)
-        
+
         do {
             let channels = try await service.fetchAndCacheChannels(from: source)
             await MainActor.run {
@@ -3324,10 +3324,10 @@ final class AppState: ObservableObject {
             }
         }
     }
-    
+
     func addVODSource(name: String, config: OnlineSourceConfig) {
         guard let sourceRepository else { return }
-        
+
         do {
             let source = MediaSource(
                 name: name,
@@ -3339,15 +3339,15 @@ final class AppState: ObservableObject {
                 includeInHealthCheck: false,
                 onlineConfig: config
             )
-            
+
             try sourceRepository.save(source)
             reload()
-            
+
             // 异步拉取并缓存视频列表
             Task {
                 await fetchVODVideos(for: source)
             }
-            
+
             alert = AppAlert(
                 title: "VOD 源已添加",
                 message: "\"\(name)\" 正在拉取视频列表..."
@@ -3356,11 +3356,11 @@ final class AppState: ObservableObject {
             showError("添加 VOD 源失败", error)
         }
     }
-    
+
     private func fetchVODVideos(for source: MediaSource) async {
         guard let db = database else { return }
         let service = VODService(db: db)
-        
+
         do {
             // 只拉取第一页，快速响应
             let videos = try await service.fetchAndCacheVideos(from: source, page: 1, pageSize: 100)
@@ -5300,7 +5300,7 @@ final class AppState: ObservableObject {
         DebugLog.log("AppState", "  title: \(item.title)")
         DebugLog.log("AppState", "  filePath: \(item.filePath ?? "nil")")
         DebugLog.log("AppState", "  sourcePath: \(item.sourcePath ?? "nil")")
-        
+
         // 在线音乐：动态获取播放 URL
         if item.isOnlineMusic {
             Task { [weak self] in
@@ -5314,7 +5314,7 @@ final class AppState: ObservableObject {
             }
             return
         }
-        
+
         if item.filePath == nil, let firstEpisode = children(for: item).first {
             DebugLog.log("AppState", "  filePath 为 nil，尝试播放第一个子项")
             play(firstEpisode, preserveSelection: preserveSelection)
@@ -5344,20 +5344,28 @@ final class AppState: ObservableObject {
             }
             return
         }
-        
-        // VOD 视频：检查 URL 是否需要解析
-        if item.type == .episode, let urlString = item.filePath, urlString.hasPrefix("http") {
-            let sourceName = item.metadataProvider ?? item.genre ?? ""
+
+        // VOD 视频：检查 URL 是否需要解析。兼容旧缓存/异常 CMS 数据里形如 `第01集$https://...` 的播放地址。
+        if item.type == .episode, let rawURLString = item.filePath,
+           let httpRange = rawURLString.range(of: #"https?://"#, options: .regularExpression) {
+            let urlString = String(rawURLString[httpRange.lowerBound...])
+            var vodItem = item
+            if vodItem.filePath != urlString {
+                DebugLog.log("AppState", "  规范化 VOD 播放地址: \(vodItem.filePath ?? "nil") -> \(urlString)")
+                vodItem.filePath = urlString
+                vodItem.sourcePath = urlString
+            }
+            let sourceName = vodItem.metadataProvider ?? vodItem.genre ?? ""
             let classification = VODURLResolver.classify(urlString, sourceName: sourceName)
-            
+
             DebugLog.log("AppState", "🎬 VOD URL 分类: \(classification.note)")
             vodResolveTask?.cancel()
             vodResolveTask = nil
-            
+
             switch classification.type {
             case .directStream:
-                playPreparedItem(item, preserveSelection: preserveSelection)
-                
+                playPreparedItem(vodItem, preserveSelection: preserveSelection)
+
             case .needsParser(let parserURL):
                 DebugLog.log("AppState", "  需要解析器: \(parserURL)")
                 showFloatingNotice(title: "正在解析视频地址", message: sourceName.isEmpty ? nil : sourceName, kind: .info, duration: 2.0)
@@ -5368,7 +5376,7 @@ final class AppState: ObservableObject {
                         let realURL = try await resolver.extractStreamURL(from: parserURL)
                         try Task.checkCancellation()
                         DebugLog.log("AppState", "  ✅ 第三方解析成功: \(realURL)")
-                        var preparedItem = item
+                        var preparedItem = vodItem
                         preparedItem.filePath = realURL
                         self.playPreparedItem(preparedItem, preserveSelection: preserveSelection)
                     } catch is CancellationError {
@@ -5378,7 +5386,7 @@ final class AppState: ObservableObject {
                         self.showError("第三方解析失败", error)
                     }
                 }
-                
+
             case .webPage:
                 showFloatingNotice(title: "正在解析视频地址", message: "尝试从网页播放器提取真实流", kind: .info, duration: 2.0)
                 vodResolveTask = Task { [weak self] in
@@ -5389,8 +5397,8 @@ final class AppState: ObservableObject {
                         let realURL = try await resolver.extractStreamURL(from: urlString)
                         try Task.checkCancellation()
                         DebugLog.log("AppState", "  ✅ 解析成功: \(realURL)")
-                        
-                        var preparedItem = item
+
+                        var preparedItem = vodItem
                         preparedItem.filePath = realURL
                         self.playPreparedItem(preparedItem, preserveSelection: preserveSelection)
                     } catch is CancellationError {
@@ -5400,13 +5408,13 @@ final class AppState: ObservableObject {
                         self.showError("视频地址解析失败", error)
                     }
                 }
-                
+
             case .unsupported:
                 alert = AppAlert(title: "不支持的视频格式", message: classification.note)
             }
             return
         }
-        
+
         playPreparedItem(item, preserveSelection: preserveSelection)
     }
 
@@ -5427,22 +5435,22 @@ final class AppState: ObservableObject {
             return prepared
         }
     }
-    
+
     private func prepareOnlineMusicForPlayback(_ item: MediaItem) async throws -> MediaItem {
         guard let songID = item.onlineMusicID,
               let providerString = item.onlineMusicProvider else {
             throw NSError(domain: "MediaLib", code: -1, userInfo: [NSLocalizedDescriptionKey: "缺少在线音乐 ID 或提供商信息"])
         }
-        
+
         // 获取所有在线音乐源配置
         let onlineSources = sources.filter { $0.sourceKind == .onlineMusic }
         guard !onlineSources.isEmpty else {
             throw NSError(domain: "MediaLib", code: -1, userInfo: [NSLocalizedDescriptionKey: "未配置在线音乐源"])
         }
-        
+
         var neteaseAPI: String?
         var gdstudioAPI: String?
-        
+
         for source in onlineSources {
             guard let config = source.onlineConfig else { continue }
             switch config.kind {
@@ -5454,7 +5462,7 @@ final class AppState: ObservableObject {
                 break
             }
         }
-        
+
         let service = OnlineMusicService()
         let result = try await service.playURL(
             song: OnlineMusicService.Song(
@@ -5468,7 +5476,7 @@ final class AppState: ObservableObject {
             neteaseAPI: neteaseAPI,
             gdstudioAPI: gdstudioAPI
         )
-        
+
         var prepared = item
         prepared.filePath = result.url
         return prepared
