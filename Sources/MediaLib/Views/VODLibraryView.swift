@@ -21,6 +21,8 @@ struct VODLibraryView: View {
     @State private var hasMorePages = true
     
     @State private var selectedVideo: VODVideo?
+    @State private var loadingTask: Task<Void, Never>?
+    @State private var categoryTask: Task<Void, Never>?
     
     // displayVideos 计算属性在 sheet 弹出时会触发布局死循环，暂时禁用本地搜索
     // private var displayVideos: [VODVideo] {
@@ -39,9 +41,6 @@ struct VODLibraryView: View {
     // }
     
     var body: some View {
-        // 编译时版本标记（用于确认部署版本）
-        let _ = DebugLog.log("VODLibraryView", "🔖 编译版本: 84ebfc1 (移除所有body内计算属性)")
-        
         // 预计算分类相关数据，避免 body 内重复计算触发布局死循环
         let topCategories = categories.filter { $0.parentID == 0 }
         let selectedCategoryName: String = {
@@ -199,11 +198,8 @@ struct VODLibraryView: View {
                     ], spacing: 20) {
                         ForEach(filteredVideos) { video in
                             Button {
-                                NSLog("[MEDIALIB] 🎯 点击封面: %@", video.name)
                                 DebugLog.log("VODLibraryView", "🎯 点击视频封面: \(video.name)")
                                 selectedVideo = video
-                                NSLog("[MEDIALIB] ✅ selectedVideo 已设置")
-                                DebugLog.log("VODLibraryView", "✅ selectedVideo 已设置")
                             } label: {
                                 VideoCard(video: video)
                             }
@@ -245,8 +241,6 @@ struct VODLibraryView: View {
             }
         }
         .sheet(item: $selectedVideo) { video in
-            let _ = NSLog("[MEDIALIB] 📄 sheet 闭包被触发，video=%@", video.name)
-            let _ = DebugLog.log("VODLibraryView", "📄 sheet 闭包被触发，video=\(video.name)")
             VODDetailView(video: video, source: source)
                 .environmentObject(appState)
         }
@@ -320,15 +314,19 @@ struct VODLibraryView: View {
     private func loadCategories() {
         guard let db = appState.database else { return }
         
-        Task {
+        categoryTask?.cancel()
+        categoryTask = Task {
             do {
                 let service = VODService(db: db)
                 let loaded = try await service.fetchCategories(from: source)
+                try Task.checkCancellation()
                 
                 await MainActor.run {
                     self.categories = loaded
                     DebugLog.log("VODLibraryView", "加载了 \(loaded.count) 个分类")
                 }
+            } catch is CancellationError {
+                return
             } catch {
                 DebugLog.log("VODLibraryView", "❌ 分类加载失败: \(error.localizedDescription)")
             }
@@ -353,14 +351,19 @@ struct VODLibraryView: View {
         
         errorMessage = nil
         
-        Task {
+        if page == 1 {
+            loadingTask?.cancel()
+        }
+        let requestedTypeID = selectedTypeID
+        loadingTask = Task {
             do {
                 let service = VODService(db: db)
                 let result = try await service.fetchVideos(
                     from: source,
                     page: page,
-                    typeID: selectedTypeID.map(String.init)
+                    typeID: requestedTypeID.map(String.init)
                 )
+                try Task.checkCancellation()
                 
                 DebugLog.log("VODLibraryView", "API 返回 \(result.videos.count) 个视频，第 \(result.page)/\(result.pageCount) 页")
                 
@@ -383,6 +386,8 @@ struct VODLibraryView: View {
                     
                     DebugLog.log("VODLibraryView", "  当前页: \(result.page), 还有更多: \(self.hasMorePages)")
                 }
+            } catch is CancellationError {
+                return
             } catch {
                 DebugLog.log("VODLibraryView", "❌ 加载失败: \(error.localizedDescription)")
                 await MainActor.run {

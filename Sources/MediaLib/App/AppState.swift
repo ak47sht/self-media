@@ -538,6 +538,7 @@ final class AppState: ObservableObject {
     private var musicQueuePersistenceTask: Task<Void, Never>?
     private var didRestoreMusicQueue = false
     private var embyPlaybackSyncTasks: [String: Task<Void, Never>] = [:]
+    private var vodResolveTask: Task<Void, Never>?
     private var restoredArtworkWarmupTasks: [BackgroundTaskSnapshot] = []
     private var embyPlaySessionIDs: [String: String] = [:]
     private var playbackClearRevisionByItemID: [String: Date] = [:]
@@ -5346,37 +5347,54 @@ final class AppState: ObservableObject {
         
         // VOD 视频：检查 URL 是否需要解析
         if item.type == .episode, let urlString = item.filePath, urlString.hasPrefix("http") {
-            let sourceName = item.genre ?? ""
+            let sourceName = item.metadataProvider ?? item.genre ?? ""
             let classification = VODURLResolver.classify(urlString, sourceName: sourceName)
             
             DebugLog.log("AppState", "🎬 VOD URL 分类: \(classification.note)")
+            vodResolveTask?.cancel()
+            vodResolveTask = nil
             
             switch classification.type {
             case .directStream:
-                // 可直接播放
                 playPreparedItem(item, preserveSelection: preserveSelection)
                 
             case .needsParser(let parserURL):
-                // 需要第三方解析器
                 DebugLog.log("AppState", "  需要解析器: \(parserURL)")
-                alert = AppAlert(
-                    title: "需要第三方播放器",
-                    message: "此视频源（\(sourceName)）需要使用第三方解析器播放。\n\n建议：切换到其他视频源。"
-                )
+                showFloatingNotice(title: "正在解析视频地址", message: sourceName.isEmpty ? nil : sourceName, kind: .info, duration: 2.0)
+                vodResolveTask = Task { [weak self] in
+                    guard let self else { return }
+                    do {
+                        let resolver = VODURLResolver()
+                        let realURL = try await resolver.extractStreamURL(from: parserURL)
+                        try Task.checkCancellation()
+                        DebugLog.log("AppState", "  ✅ 第三方解析成功: \(realURL)")
+                        var preparedItem = item
+                        preparedItem.filePath = realURL
+                        self.playPreparedItem(preparedItem, preserveSelection: preserveSelection)
+                    } catch is CancellationError {
+                        return
+                    } catch {
+                        DebugLog.log("AppState", "  ❌ 第三方解析失败: \(error.localizedDescription)")
+                        self.showError("第三方解析失败", error)
+                    }
+                }
                 
             case .webPage:
-                // 需要从网页中提取真实流地址
-                Task { [weak self] in
+                showFloatingNotice(title: "正在解析视频地址", message: "尝试从网页播放器提取真实流", kind: .info, duration: 2.0)
+                vodResolveTask = Task { [weak self] in
                     guard let self else { return }
                     do {
                         DebugLog.log("AppState", "  开始解析网页播放器...")
                         let resolver = VODURLResolver()
                         let realURL = try await resolver.extractStreamURL(from: urlString)
+                        try Task.checkCancellation()
                         DebugLog.log("AppState", "  ✅ 解析成功: \(realURL)")
                         
                         var preparedItem = item
                         preparedItem.filePath = realURL
                         self.playPreparedItem(preparedItem, preserveSelection: preserveSelection)
+                    } catch is CancellationError {
+                        return
                     } catch {
                         DebugLog.log("AppState", "  ❌ 解析失败: \(error.localizedDescription)")
                         self.showError("视频地址解析失败", error)

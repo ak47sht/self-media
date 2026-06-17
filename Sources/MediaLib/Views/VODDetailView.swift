@@ -14,11 +14,6 @@ struct VODDetailView: View {
     private let episodesPerPage = 50
     
     var body: some View {
-        let _ = NSLog("[MEDIALIB] 🚀 VODDetailView.body 开始构建: %@", video.name)
-        let _ = DebugLog.log("VODDetailView", "🚀 body 开始构建，video=\(video.name)")
-        // 编译时版本标记（用于确认部署版本）
-        let _ = DebugLog.log("VODDetailView", "🔖 编译版本: 84ebfc1 (移除所有body内计算属性)")
-        
         // 预计算，避免 body 内重复访问计算属性
         let routes = video.playURLs
         
@@ -276,7 +271,7 @@ struct VODDetailView: View {
         DebugLog.log("VODDetailView", "  URL: \(episode.url)")
         
         // 创建 MediaItem 并播放
-        let mediaItem = MediaItemFactory.makeMediaItem(from: video, episode: episode)
+        let mediaItem = MediaItemFactory.makeMediaItem(from: video, episode: episode, sourceName: source.name)
         DebugLog.log("VODDetailView", "  MediaItem 已创建: \(mediaItem.title)")
         DebugLog.log("VODDetailView", "  MediaItem.sourcePath: \(mediaItem.sourcePath)")
         DebugLog.log("VODDetailView", "  MediaItem.filePath: \(mediaItem.filePath)")

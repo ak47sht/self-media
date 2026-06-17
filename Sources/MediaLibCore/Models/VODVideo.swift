@@ -100,7 +100,9 @@ public struct VODPlayLine: Identifiable, Codable, Sendable, Equatable {
     public let episodes: [VODEpisode]  // 剧集列表
     
     public init(name: String, episodes: [VODEpisode]) {
-        self.id = UUID().uuidString
+        let firstURL = episodes.first?.url ?? ""
+        let lastURL = episodes.last?.url ?? ""
+        self.id = "\(name)|\(episodes.count)|\(firstURL)|\(lastURL)"
         self.name = name
         self.episodes = episodes
     }
@@ -129,18 +131,19 @@ public struct VODPlayLine: Identifiable, Codable, Sendable, Equatable {
             for episodeStr in episodeStrings {
                 guard !episodeStr.isEmpty else { continue }
                 
-                // 按 $ 分割名称和URL
-                let parts = episodeStr.components(separatedBy: "$")
-                if parts.count >= 2 {
-                    let name = parts[0].trimmingCharacters(in: .whitespaces)
-                    let url = parts[1].trimmingCharacters(in: .whitespaces)
+                // 只按第一个 $ 分割；URL 的 query/signature 自身可能包含 $。
+                let parts = episodeStr.split(separator: "$", maxSplits: 1, omittingEmptySubsequences: false)
+                if parts.count == 2 {
+                    let name = String(parts[0]).trimmingCharacters(in: .whitespaces)
+                    let url = String(parts[1]).trimmingCharacters(in: .whitespaces)
                     episodes.append(VODEpisode(name: name, url: url))
                 }
             }
             
             if !episodes.isEmpty {
-                let lineName = episodes.first?.name.contains("线路") == true
-                    ? episodes.first!.name
+                let firstEpisodeName = episodes.first?.name ?? ""
+                let lineName = firstEpisodeName.contains("线路")
+                    ? firstEpisodeName
                     : "线路\(index + 1)"
                 lines.append(VODPlayLine(name: lineName, episodes: episodes))
             }
@@ -157,7 +160,7 @@ public struct VODEpisode: Identifiable, Codable, Sendable, Equatable {
     public let url: String     // 播放地址
     
     public init(name: String, url: String) {
-        self.id = UUID().uuidString
+        self.id = "\(name)|\(url)"
         self.name = name
         self.url = url
     }

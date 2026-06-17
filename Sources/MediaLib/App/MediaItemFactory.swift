@@ -66,7 +66,7 @@ enum MediaItemFactory {
     ///   - video: VOD 视频
     ///   - episode: 剧集信息
     /// - Returns: 可播放的 MediaItem
-    static func makeMediaItem(from video: VODVideo, episode: VODEpisode) -> MediaItem {
+    static func makeMediaItem(from video: VODVideo, episode: VODEpisode, sourceName: String? = nil) -> MediaItem {
         DebugLog.log("MediaItemFactory", "创建 VOD MediaItem: \(video.name) - \(episode.name)")
         DebugLog.log("MediaItemFactory", "  URL: \(episode.url)")
         
@@ -107,7 +107,7 @@ enum MediaItemFactory {
             favorite: false,
             watchlist: false,
             externalID: nil,
-            metadataProvider: nil,
+            metadataProvider: sourceName,
             collectionTitle: video.type,
             createdAt: video.updatedAt ?? Date(),
             updatedAt: video.updatedAt ?? Date(),
