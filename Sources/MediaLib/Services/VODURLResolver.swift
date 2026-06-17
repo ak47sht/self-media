@@ -94,17 +94,27 @@ actor VODURLResolver {
     
     /// 用 WebView 从网页/分享页中提取真实的视频流 URL
     func extractStreamURL(from webPageURL: String) async throws -> String {
+        let coordinator = await MainActor.run { () -> WebViewCoordinator in
+            let webView = WKWebView()
+            let coordinator = WebViewCoordinator(
+                webView: webView,
+                targetURL: webPageURL
+            )
+            // navigationDelegate 强引用 coordinator\n            webView.navigationDelegate = coordinator\n            coordinator.start()\n            return coordinator\n        }
+
+        // 等待 coordinator 完成（它会在完成时 resume 这个 continuation）
         return try await withCheckedThrowingContinuation { continuation in
-            DispatchQueue.main.async {
-                let webView = WKWebView()
-                let coordinator = WebViewCoordinator(
-                    webView: webView,
-                    targetURL: webPageURL,
-                    continuation: continuation
-                )
-                coordinator.start()
-            }
+            coordinator.continuation = continuation
+            // 如果 coordinator 已经完成（race condition），continuation 需要立即被 resume
+            coordinator.flushPendingResult()
         }
+    }
+    
+    // MARK: - 旧 API（保留兼容）
+    
+    @available(*, deprecated, message: "Use extractStreamURL(from:) instead")
+    func extractStreamURL_old(from webPageURL: String) async throws -> String {
+        return try await extractStreamURL(from: webPageURL)
     }
 }
 
@@ -113,14 +123,13 @@ actor VODURLResolver {
 private class WebViewCoordinator: NSObject, WKNavigationDelegate {
     let webView: WKWebView
     let targetURL: String
-    let continuation: CheckedContinuation<String, Error>
-    var hasResumed = false
+    var continuation: CheckedContinuation<String, Error>?
+    var pendingResult: Result<String, Error>? = nil
     var timeoutTask: Task<Void, Never>?
     
-    init(webView: WKWebView, targetURL: String, continuation: CheckedContinuation<String, Error>) {
+    init(webView: WKWebView, targetURL: String) {
         self.webView = webView
         self.targetURL = targetURL
-        self.continuation = continuation
         super.init()
     }
     
@@ -213,23 +222,32 @@ private class WebViewCoordinator: NSObject, WKNavigationDelegate {
     }
     
     private func resumeWithSuccess(_ urlString: String) {
-        guard !hasResumed else { return }
-        hasResumed = true
         timeoutTask?.cancel()
-        continuation.resume(returning: urlString)
-    }
-    
-    private func resumeWithError(_ error: Error) {
-        Task { @MainActor in
-            await self.resumeWithErrorAsync(error)
+        if let c = continuation {
+            continuation = nil
+            c.resume(returning: urlString)
+        } else {
+            pendingResult = .success(urlString)
         }
     }
     
-    @MainActor
-    private func resumeWithErrorAsync(_ error: Error) async {
-        guard !hasResumed else { return }
-        hasResumed = true
+    private func resumeWithError(_ error: Error) {
         timeoutTask?.cancel()
-        continuation.resume(throwing: error)
+        if let c = continuation {
+            continuation = nil
+            c.resume(throwing: error)
+        } else {
+            pendingResult = .failure(error)
+        }
+    }
+    
+    func flushPendingResult() {
+        if let result = pendingResult {
+            pendingResult = nil
+            switch result {
+            case .success(let url): resumeWithSuccess(url)
+            case .failure(let error): resumeWithError(error)
+            }
+        }
     }
 }
