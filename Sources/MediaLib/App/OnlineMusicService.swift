@@ -362,7 +362,7 @@ public actor OnlineMusicService {
 
 // MARK: - 在线音乐提供商
 
-public enum OnlineMusicProvider: Codable, Sendable {
+public enum OnlineMusicProvider: Codable, Sendable, Hashable {
     case netease
     case gdstudio
     case custom(String)  // API base URL
