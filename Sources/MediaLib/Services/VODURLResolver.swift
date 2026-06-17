@@ -100,13 +100,17 @@ actor VODURLResolver {
                 webView: webView,
                 targetURL: webPageURL
             )
-            // navigationDelegate 强引用 coordinator\n            webView.navigationDelegate = coordinator\n            coordinator.start()\n            return coordinator\n        }
+            // navigationDelegate 强引用 coordinator
+            webView.navigationDelegate = coordinator
+            coordinator.start()
+            return coordinator
+        }
 
         // 等待 coordinator 完成（它会在完成时 resume 这个 continuation）
         return try await withCheckedThrowingContinuation { continuation in
-            coordinator.continuation = continuation
-            // 如果 coordinator 已经完成（race condition），continuation 需要立即被 resume
-            coordinator.flushPendingResult()
+            Task { @MainActor in
+                coordinator.setContinuation(continuation)
+            }
         }
     }
     
@@ -121,11 +125,11 @@ actor VODURLResolver {
 // MARK: - WebView 协调器
 
 private class WebViewCoordinator: NSObject, WKNavigationDelegate {
-    let webView: WKWebView
+    private weak var webView: WKWebView?  // weak 避免循环引用
     let targetURL: String
-    var continuation: CheckedContinuation<String, Error>?
-    var pendingResult: Result<String, Error>? = nil
-    var timeoutTask: Task<Void, Never>?
+    private var continuation: CheckedContinuation<String, Error>?
+    private var pendingResult: Result<String, Error>? = nil
+    private var timeoutTask: Task<Void, Never>?
     
     init(webView: WKWebView, targetURL: String) {
         self.webView = webView
@@ -133,13 +137,34 @@ private class WebViewCoordinator: NSObject, WKNavigationDelegate {
         super.init()
     }
     
+    // MARK: - Public API
+    
+    @MainActor
+    func setContinuation(_ c: CheckedContinuation<String, Error>) {
+        if let pending = pendingResult {
+            pendingResult = nil
+            timeoutTask?.cancel()
+            switch pending {
+            case .success(let url):
+                c.resume(returning: url)
+            case .failure(let error):
+                c.resume(throwing: error)
+            }
+        } else {
+            self.continuation = c
+        }
+    }
+    
+    @MainActor
     func start() {
+        guard let webView = webView else { return }
         webView.navigationDelegate = self
         
         // 30 秒超时
         timeoutTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 30_000_000_000)
-            await self?.resumeWithError(NSError(domain: "VODURLResolver", code: -1, userInfo: [NSLocalizedDescriptionKey: "WebView 解析超时"]))
+            guard let self = self else { return }
+            await self.handleTimeout()
         }
         
         guard let url = URL(string: targetURL) else {
@@ -149,6 +174,8 @@ private class WebViewCoordinator: NSObject, WKNavigationDelegate {
         
         webView.load(URLRequest(url: url))
     }
+    
+    // MARK: - WKNavigationDelegate
     
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         // 页面加载完成，执行 JavaScript 提取视频 URL
@@ -221,8 +248,18 @@ private class WebViewCoordinator: NSObject, WKNavigationDelegate {
         resumeWithError(error)
     }
     
+    // MARK: - Result Handling (all called on main thread by WKWebView)
+    
+    /// WKNavigationDelegate 回调保证在主线程，所以这里去掉 @MainActor 用 assumeIsolated
+    private func handleTimeout() {
+        MainActor.assumeIsolated {
+            resumeWithError(NSError(domain: "VODURLResolver", code: -1, userInfo: [NSLocalizedDescriptionKey: "WebView 解析超时"]))
+        }
+    }
+    
     private func resumeWithSuccess(_ urlString: String) {
         timeoutTask?.cancel()
+        releaseHeldWebView()
         if let c = continuation {
             continuation = nil
             c.resume(returning: urlString)
@@ -233,6 +270,7 @@ private class WebViewCoordinator: NSObject, WKNavigationDelegate {
     
     private func resumeWithError(_ error: Error) {
         timeoutTask?.cancel()
+        releaseHeldWebView()
         if let c = continuation {
             continuation = nil
             c.resume(throwing: error)
@@ -241,13 +279,9 @@ private class WebViewCoordinator: NSObject, WKNavigationDelegate {
         }
     }
     
-    func flushPendingResult() {
-        if let result = pendingResult {
-            pendingResult = nil
-            switch result {
-            case .success(let url): resumeWithSuccess(url)
-            case .failure(let error): resumeWithError(error)
-            }
-        }
+    /// 断开 webView 的 navigationDelegate，释放循环引用
+    private func releaseHeldWebView() {
+        webView?.navigationDelegate = nil
+        webView?.stopLoading()
     }
 }
