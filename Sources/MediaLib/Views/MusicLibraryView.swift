@@ -409,14 +409,14 @@ struct MusicLibraryView: View {
         // 构造 MediaItem
         let mediaItem = MediaItem(
             id: "online:\(song.id)",
-            sourcePath: "online_music",
-            title: song.name,
             type: .music,
+            title: song.name,
             artist: song.artist,
             album: song.album,
+            sourcePath: "online_music",
             duration: song.duration > 0 ? song.duration : nil,
             onlineMusicID: song.id,
-            onlineMusicProvider: "netease",  // TODO: 根据实际来源设置
+            onlineMusicProvider: "netease",
             onlineMusicCoverURL: song.coverURL
         )
         
@@ -436,7 +436,7 @@ struct MusicLibraryView: View {
         
         // 检查是否已存在
         if playlist.itemIDs.contains(mediaItem.id) {
-            appState.alert = AppAlert(title: "已收藏", message: ""\(song.name)" 已在「\(playlistName)」歌单中。")
+            appState.alert = AppAlert(title: "已收藏", message: "\(song.name) 已在「\(playlistName)」歌单中")
             return
         }
         
@@ -448,7 +448,7 @@ struct MusicLibraryView: View {
             // 添加到歌单
             appState.addMusicTracks([mediaItem], to: playlist)
             
-            appState.alert = AppAlert(title: "已收藏", message: ""\(song.name)" 已加入「\(playlistName)」歌单。")
+            appState.alert = AppAlert(title: "已收藏", message: "\(song.name) 已加入「\(playlistName)」歌单")
         } catch {
             appState.showError("保存失败", error)
         }
