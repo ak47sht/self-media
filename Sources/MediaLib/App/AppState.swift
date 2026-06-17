@@ -5343,6 +5343,53 @@ final class AppState: ObservableObject {
             }
             return
         }
+        
+        // VOD 视频：检查 URL 是否需要解析
+        if item.type == .episode, let urlString = item.filePath, urlString.hasPrefix("http") {
+            let sourceName = item.genre ?? ""
+            let classification = VODURLResolver.classify(urlString, sourceName: sourceName)
+            
+            DebugLog.log("AppState", "🎬 VOD URL 分类: \(classification.note)")
+            
+            switch classification.type {
+            case .directStream:
+                // 可直接播放
+                playPreparedItem(item, preserveSelection: preserveSelection)
+                
+            case .needsParser(let parserURL):
+                // 需要第三方解析器
+                DebugLog.log("AppState", "  需要解析器: \(parserURL)")
+                alert = AppAlert(
+                    title: "需要第三方播放器",
+                    message: "此视频源（\(sourceName)）需要使用第三方解析器播放。\n\n建议：切换到其他视频源。"
+                )
+                
+            case .webPage:
+                // 需要从网页中提取真实流地址
+                Task { [weak self] in
+                    guard let self else { return }
+                    do {
+                        DebugLog.log("AppState", "  开始解析网页播放器...")
+                        let resolver = VODURLResolver()
+                        let realURL = try await resolver.extractStreamURL(from: urlString)
+                        DebugLog.log("AppState", "  ✅ 解析成功: \(realURL)")
+                        
+                        var preparedItem = item
+                        preparedItem.filePath = realURL
+                        self.cachePlayableItem(preparedItem, for: item)
+                        self.playPreparedItem(preparedItem, preserveSelection: preserveSelection)
+                    } catch {
+                        DebugLog.log("AppState", "  ❌ 解析失败: \(error.localizedDescription)")
+                        self.showError("视频地址解析失败", error)
+                    }
+                }
+                
+            case .unsupported:
+                alert = AppAlert(title: "不支持的视频格式", message: classification.note)
+            }
+            return
+        }
+        
         playPreparedItem(item, preserveSelection: preserveSelection)
     }
 
