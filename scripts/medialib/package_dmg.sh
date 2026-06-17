@@ -45,7 +45,7 @@ cd "$ROOT_DIR"
 swift "$SCRIPT_DIR/generate_icon.swift"
 
 echo "Building for production..."
-swift build -c release --product "$APP_NAME" -v 2>&1 | tee /tmp/swift-build.log || {
+swift build -c release --product "$APP_NAME" -v -Xswiftc -no-whole-module-optimization 2>&1 | tee /tmp/swift-build.log || {
   echo "=== Swift build failed. Last 100 lines of output: ===" >&2
   tail -100 /tmp/swift-build.log >&2
   exit 1
