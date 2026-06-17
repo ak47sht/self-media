@@ -44,7 +44,12 @@ cd "$ROOT_DIR"
 
 swift "$SCRIPT_DIR/generate_icon.swift"
 
-swift build -c release --product "$APP_NAME"
+echo "Building for production..."
+swift build -c release --product "$APP_NAME" -v 2>&1 | tee /tmp/swift-build.log || {
+  echo "=== Swift build failed. Last 100 lines of output: ===" >&2
+  tail -100 /tmp/swift-build.log >&2
+  exit 1
+}
 
 rm -rf "$BUILD_ROOT" "$APP_COPY" "$LEGACY_APP_COPY" "$DMG_PATH"
 mkdir -p "$APP_BUNDLE/Contents/MacOS" "$APP_BUNDLE/Contents/Resources" "$DMG_ROOT"
