@@ -1311,6 +1311,13 @@ final class AppState: ObservableObject {
         }
     }
 
+    func upsertMediaItem(_ item: MediaItem) throws {
+        guard let mediaRepository else {
+            throw MediaLibError.critical(\"数据库不可用\")
+        }
+        try mediaRepository.upsert(item)
+    }
+
     // MARK: - 歌单 M3U 导入 / 导出
 
     /// 生成 M3U 文本（含 #EXTINF 时长与"艺人 - 标题"）。

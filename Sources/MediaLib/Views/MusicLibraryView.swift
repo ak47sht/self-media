@@ -404,14 +404,14 @@ struct MusicLibraryView: View {
             appState.showError("获取播放地址失败", error)
         }
     }
-    
     @MainActor
-    private static func saveOnlineSongToLibrary(_ song: OnlineMusicService.Song, appState: AppState) async {
-        // 创建在线音乐 MediaItem（不设置 filePath，播放时动态获取）
+    private static func saveOnlineSongToLibrary(_ song: OnlineMusicService.Song, appState: AppState) {
+        // 构造 MediaItem
         let mediaItem = MediaItem(
             id: "online:\(song.id)",
-            type: .music,
+            sourcePath: "online_music",
             title: song.name,
+            type: .music,
             artist: song.artist,
             album: song.album,
             duration: song.duration > 0 ? song.duration : nil,
@@ -426,33 +426,27 @@ struct MusicLibraryView: View {
         
         if targetPlaylist == nil {
             // 创建新歌单
-            let newPlaylist = MusicPlaylist(
-                id: UUID().uuidString,
-                name: playlistName,
-                trackIDs: [],
-                createdAt: Date(),
-                updatedAt: Date()
-            )
-            appState.saveMusicPlaylist(newPlaylist)
-            targetPlaylist = newPlaylist
+            targetPlaylist = appState.createMusicPlaylist(name: playlistName, tracks: [])
         }
         
-        guard var playlist = targetPlaylist else { return }
+        guard let playlist = targetPlaylist else {
+            appState.alert = AppAlert(title: "保存失败", message: "无法创建歌单")
+            return
+        }
         
         // 检查是否已存在
-        if playlist.trackIDs.contains(mediaItem.id) {
+        if playlist.itemIDs.contains(mediaItem.id) {
             appState.alert = AppAlert(title: "已收藏", message: ""\(song.name)" 已在「\(playlistName)」歌单中。")
             return
         }
         
         // 先保存 MediaItem 到数据库
+        
         do {
-            try appState.db.save(mediaItem)
+            try appState.upsertMediaItem(mediaItem)
             
             // 添加到歌单
-            playlist.trackIDs.append(mediaItem.id)
-            playlist.updatedAt = Date()
-            appState.saveMusicPlaylist(playlist)
+            appState.addMusicTracks([mediaItem], to: playlist)
             
             appState.alert = AppAlert(title: "已收藏", message: ""\(song.name)" 已加入「\(playlistName)」歌单。")
         } catch {
@@ -506,9 +500,7 @@ struct MusicLibraryView: View {
                     },
                     onSave: { [weak appState] song in
                         guard let appState else { return }
-                        Task {
-                            await Self.saveOnlineSongToLibrary(song, appState: appState)
-                        }
+                        Self.saveOnlineSongToLibrary(song, appState: appState)
                     }
                 )
                 .environmentObject(appState)
