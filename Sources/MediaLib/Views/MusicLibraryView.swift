@@ -2633,10 +2633,10 @@ private struct OnlineMusicResultRow: View {
                                 .foregroundStyle(.secondary)
                         }
                         
-                        if let duration = song.duration {
+                        if song.duration > 0 {
                             Text("·")
                                 .foregroundStyle(.secondary.opacity(0.5))
-                            Text(formatDuration(Int(duration)))
+                            Text(formatDuration(Int(song.duration)))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
