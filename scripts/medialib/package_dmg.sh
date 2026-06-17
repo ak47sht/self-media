@@ -45,7 +45,10 @@ cd "$ROOT_DIR"
 swift "$SCRIPT_DIR/generate_icon.swift"
 
 echo "Building for production..."
-swift build -c release --product "$APP_NAME" -v 2>&1 | tee /tmp/swift-build.log || {
+# 临时关闭 WMO 以绕过 Swift 5.10 编译器后端崩溃 (fatalError in SIL optimization)
+# 删除重复 OnlineMusicProvider 定义后仍然崩溃，疑似大文件 + 复杂类型推断触发编译器 bug
+# Trade-off: 编译时间 +20-30%，运行时性能 -5-10%，但能成功出包
+swift build -c release --product "$APP_NAME" -v -Xswiftc -no-whole-module-optimization 2>&1 | tee /tmp/swift-build.log || {
   echo "=== Swift build failed. Last 100 lines of output: ===" >&2
   tail -100 /tmp/swift-build.log >&2
   exit 1
