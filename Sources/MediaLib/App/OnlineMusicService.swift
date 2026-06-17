@@ -29,6 +29,7 @@ public struct OnlineMusicTrack: Identifiable, Codable, Sendable {
 /// 支持网易云音乐、GD Studio、自定义 API
 public actor OnlineMusicService {
     private let session: URLSession
+    private var customBaseURL: String = ""  // 自定义 API 的 base URL
     
     /// Song 类型别名（兼容现有 UI 代码）
     public typealias Song = OnlineMusicTrack
@@ -44,6 +45,11 @@ public actor OnlineMusicService {
         self.session = URLSession(configuration: config)
     }
     
+    /// 设置自定义 API base URL（用于 .custom provider）
+    public func setCustomBaseURL(_ url: String) {
+        self.customBaseURL = url
+    }
+    
     // MARK: - 兼容旧 API 的方法
     
     /// 搜索音乐（兼容旧 API 签名）
@@ -51,9 +57,11 @@ public actor OnlineMusicService {
         // 优先使用 neteaseAPI，其次 gdstudioAPI，最后官方源
         let provider: OnlineMusicProvider
         if let apiBase = neteaseAPI {
-            provider = .custom(apiBase)
+            customBaseURL = apiBase
+            provider = .custom
         } else if let apiBase = gdstudioAPI {
-            provider = .custom(apiBase)
+            customBaseURL = apiBase
+            provider = .custom
         } else {
             provider = .netease
         }
@@ -67,9 +75,11 @@ public actor OnlineMusicService {
         // 优先使用 neteaseAPI，其次 gdstudioAPI，最后官方源
         let provider: OnlineMusicProvider
         if let apiBase = neteaseAPI {
-            provider = .custom(apiBase)
+            customBaseURL = apiBase
+            provider = .custom
         } else if let apiBase = gdstudioAPI {
-            provider = .custom(apiBase)
+            customBaseURL = apiBase
+            provider = .custom
         } else {
             provider = .netease
         }
@@ -89,8 +99,8 @@ public actor OnlineMusicService {
             return try await searchNetease(query: query)
         case .gdstudio:
             return try await searchGDStudio(query: query)
-        case .custom(let apiBase):
-            return try await searchCustom(query: query, apiBase: apiBase)
+        case .custom:
+            return try await searchCustom(query: query, apiBase: customBaseURL)
         }
     }
     
@@ -103,8 +113,8 @@ public actor OnlineMusicService {
             return try await playURLNetease(songID: songID)
         case .gdstudio:
             return try await playURLGDStudio(songID: songID)
-        case .custom(let apiBase):
-            return try await playURLCustom(songID: songID, apiBase: apiBase)
+        case .custom:
+            return try await playURLCustom(songID: songID, apiBase: customBaseURL)
         }
     }
     
@@ -117,8 +127,8 @@ public actor OnlineMusicService {
             return try await lyricNetease(songID: songID)
         case .gdstudio:
             return try await lyricGDStudio(songID: songID)
-        case .custom(let apiBase):
-            return try await lyricCustom(songID: songID, apiBase: apiBase)
+        case .custom:
+            return try await lyricCustom(songID: songID, apiBase: customBaseURL)
         }
     }
     
@@ -362,10 +372,10 @@ public actor OnlineMusicService {
 
 // MARK: - 在线音乐提供商
 
-public enum OnlineMusicProvider: Codable, Sendable, Hashable {
+public enum OnlineMusicProvider: String, Codable, Sendable, Hashable {
     case netease
     case gdstudio
-    case custom(String)  // API base URL
+    case custom  // 自定义 API（URL 存在 OnlineSourceConfig.onlineMusicBaseURL）
     
     public var displayName: String {
         switch self {
