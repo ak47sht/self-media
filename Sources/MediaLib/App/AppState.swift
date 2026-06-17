@@ -5292,6 +5292,20 @@ final class AppState: ObservableObject {
         DebugLog.log("AppState", "  filePath: \(item.filePath ?? "nil")")
         DebugLog.log("AppState", "  sourcePath: \(item.sourcePath ?? "nil")")
         
+        // 在线音乐：动态获取播放 URL
+        if item.isOnlineMusic {
+            Task { [weak self] in
+                guard let self else { return }
+                do {
+                    let preparedItem = try await self.prepareOnlineMusicForPlayback(item)
+                    self.playPreparedItem(preparedItem, preserveSelection: preserveSelection)
+                } catch {
+                    self.showError("获取在线音乐播放地址失败", error)
+                }
+            }
+            return
+        }
+        
         if item.filePath == nil, let firstEpisode = children(for: item).first {
             DebugLog.log("AppState", "  filePath 为 nil，尝试播放第一个子项")
             play(firstEpisode, preserveSelection: preserveSelection)
@@ -5340,6 +5354,45 @@ final class AppState: ObservableObject {
             prepared.filePath = embyService.refreshedResourceURLString(item.filePath, session: session)
             return prepared
         }
+    }
+    
+    private func prepareOnlineMusicForPlayback(_ item: MediaItem) async throws -> MediaItem {
+        guard let songID = item.onlineMusicID,
+              let providerString = item.onlineMusicProvider else {
+            throw NSError(domain: "MediaLib", code: -1, userInfo: [NSLocalizedDescriptionKey: "缺少在线音乐 ID 或提供商信息"])
+        }
+        
+        // 获取所有在线音乐源配置
+        let onlineSources = sources.filter { $0.sourceKind == .onlineMusic }
+        guard !onlineSources.isEmpty else {
+            throw NSError(domain: "MediaLib", code: -1, userInfo: [NSLocalizedDescriptionKey: "未配置在线音乐源"])
+        }
+        
+        var neteaseAPI: String?
+        var gdstudioAPI: String?
+        
+        for source in onlineSources {
+            guard let config = source.onlineConfig else { continue }
+            switch config.kind {
+            case .onlineMusicNetease:
+                neteaseAPI = config.apiBase
+            case .onlineMusicGDStudio:
+                gdstudioAPI = config.apiBase
+            default:
+                break
+            }
+        }
+        
+        let service = OnlineMusicService()
+        let result = try await service.playURL(
+            song: OnlineMusicService.Song(id: songID, name: item.title, artist: item.artist ?? "", album: item.album),
+            neteaseAPI: neteaseAPI,
+            gdstudioAPI: gdstudioAPI
+        )
+        
+        var prepared = item
+        prepared.filePath = result.url
+        return prepared
     }
 
     private func cachedPlayableItem(for item: MediaItem) -> MediaItem? {

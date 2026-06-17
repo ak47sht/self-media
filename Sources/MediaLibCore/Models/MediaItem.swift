@@ -46,6 +46,14 @@ public struct MediaItem: Identifiable, Codable, Hashable, Sendable {
     public var createdAt: Date
     public var updatedAt: Date
     public var lastPlayedAt: Date?
+    
+    // MARK: - 在线音乐支持
+    /// 在线音乐的歌曲 ID（网易云/GD Studio 等）
+    public var onlineMusicID: String?
+    /// 在线音乐提供商（netease/gdstudio/custom）
+    public var onlineMusicProvider: String?
+    /// 在线音乐封面 URL（用于显示远程封面）
+    public var onlineMusicCoverURL: String?
 
     public init(
         id: String,
@@ -89,7 +97,10 @@ public struct MediaItem: Identifiable, Codable, Hashable, Sendable {
         createdAt: Date = Date(),
         updatedAt: Date = Date(),
         lastPlayedAt: Date? = nil,
-        genre: String? = nil
+        genre: String? = nil,
+        onlineMusicID: String? = nil,
+        onlineMusicProvider: String? = nil,
+        onlineMusicCoverURL: String? = nil
     ) {
         self.id = id
         self.type = type
@@ -133,6 +144,9 @@ public struct MediaItem: Identifiable, Codable, Hashable, Sendable {
         self.updatedAt = updatedAt
         self.lastPlayedAt = lastPlayedAt
         self.genre = genre
+        self.onlineMusicID = onlineMusicID
+        self.onlineMusicProvider = onlineMusicProvider
+        self.onlineMusicCoverURL = onlineMusicCoverURL
     }
 
     public var displayYear: String {
@@ -179,5 +193,10 @@ public struct MediaItem: Identifiable, Codable, Hashable, Sendable {
 
     public var hasPlaybackTrace: Bool {
         lastPlayedAt != nil || playPosition > 0 || playProgress > 0 || watched
+    }
+    
+    /// 是否为在线音乐（通过 onlineMusicID 判断）
+    public var isOnlineMusic: Bool {
+        onlineMusicID != nil
     }
 }

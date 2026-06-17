@@ -405,6 +405,61 @@ struct MusicLibraryView: View {
         }
     }
     
+    @MainActor
+    private static func saveOnlineSongToLibrary(_ song: OnlineMusicService.Song, appState: AppState) async {
+        // 创建在线音乐 MediaItem（不设置 filePath，播放时动态获取）
+        let mediaItem = MediaItem(
+            id: "online:\(song.id)",
+            type: .music,
+            title: song.name,
+            artist: song.artist,
+            album: song.album,
+            duration: song.duration > 0 ? song.duration : nil,
+            onlineMusicID: song.id,
+            onlineMusicProvider: "netease",  // TODO: 根据实际来源设置
+            onlineMusicCoverURL: song.coverURL
+        )
+        
+        // 确保"在线音乐"歌单存在
+        let playlistName = "在线音乐"
+        var targetPlaylist = appState.musicPlaylists.first { $0.name == playlistName }
+        
+        if targetPlaylist == nil {
+            // 创建新歌单
+            let newPlaylist = MusicPlaylist(
+                id: UUID().uuidString,
+                name: playlistName,
+                trackIDs: [],
+                createdAt: Date(),
+                updatedAt: Date()
+            )
+            appState.saveMusicPlaylist(newPlaylist)
+            targetPlaylist = newPlaylist
+        }
+        
+        guard var playlist = targetPlaylist else { return }
+        
+        // 检查是否已存在
+        if playlist.trackIDs.contains(mediaItem.id) {
+            appState.alert = AppAlert(title: "已收藏", message: ""\(song.name)" 已在「\(playlistName)」歌单中。")
+            return
+        }
+        
+        // 先保存 MediaItem 到数据库
+        do {
+            try appState.db.save(mediaItem)
+            
+            // 添加到歌单
+            playlist.trackIDs.append(mediaItem.id)
+            playlist.updatedAt = Date()
+            appState.saveMusicPlaylist(playlist)
+            
+            appState.alert = AppAlert(title: "已收藏", message: ""\(song.name)" 已加入「\(playlistName)」歌单。")
+        } catch {
+            appState.showError("保存失败", error)
+        }
+    }
+    
     var body: some View {
         bodyWithLifecycle
             .sheet(item: $metadataItem) { item in
@@ -447,6 +502,12 @@ struct MusicLibraryView: View {
                         guard let appState else { return }
                         Task {
                             await Self.playOnlineSong(song, appState: appState)
+                        }
+                    },
+                    onSave: { [weak appState] song in
+                        guard let appState else { return }
+                        Task {
+                            await Self.saveOnlineSongToLibrary(song, appState: appState)
                         }
                     }
                 )
@@ -2487,6 +2548,7 @@ private struct OnlineMusicSearchSheet: View {
     @State private var searchResults: [OnlineMusicService.Song] = []
     @State private var isSearching = false
     let onPlay: (OnlineMusicService.Song) -> Void
+    let onSave: (OnlineMusicService.Song) -> Void
     
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -2527,7 +2589,7 @@ private struct OnlineMusicSearchSheet: View {
                         .padding(.vertical, 60)
                     } else {
                         ForEach(searchResults) { result in
-                            OnlineMusicResultRow(song: result, onPlay: onPlay)
+                            OnlineMusicResultRow(song: result, onPlay: onPlay, onSave: onSave)
                         }
                     }
                 }
@@ -2601,61 +2663,78 @@ private struct OnlineMusicSearchSheet: View {
 private struct OnlineMusicResultRow: View {
     let song: OnlineMusicService.Song
     let onPlay: (OnlineMusicService.Song) -> Void
+    let onSave: (OnlineMusicService.Song) -> Void
     @State private var isHovering = false
     
     var body: some View {
-        Button {
-            onPlay(song)
-        } label: {
-            HStack(spacing: 12) {
-                Image(systemName: "music.note")
+        HStack(spacing: 12) {
+            // 播放按钮（点击整行也能播放）
+            Button {
+                onPlay(song)
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "music.note")
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 40, height: 40)
+                        .background(Color.primary.opacity(0.06))
+                        .cornerRadius(8)
+                    
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(song.name)
+                            .font(.callout.weight(.medium))
+                            .lineLimit(1)
+                        
+                        HStack(spacing: 6) {
+                            Text(song.displayArtist)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            
+                            if let album = song.album, !album.isEmpty {
+                                Text("·")
+                                    .foregroundStyle(.secondary.opacity(0.5))
+                                Text(album)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            
+                            if song.duration > 0 {
+                                Text("·")
+                                    .foregroundStyle(.secondary.opacity(0.5))
+                                Text(formatDuration(Int(song.duration)))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .lineLimit(1)
+                    }
+                    
+                    Spacer(minLength: 0)
+                    
+                    Image(systemName: "play.circle.fill")
+                        .font(.title2)
+                        .foregroundStyle(isHovering ? .primary : .secondary)
+                }
+            }
+            .buttonStyle(.plain)
+            
+            // 收藏按钮（右侧独立）
+            Button {
+                onSave(song)
+            } label: {
+                Image(systemName: "heart")
                     .font(.title3)
                     .foregroundStyle(.secondary)
-                    .frame(width: 40, height: 40)
-                    .background(Color.primary.opacity(0.06))
-                    .cornerRadius(8)
-                
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(song.name)
-                        .font(.callout.weight(.medium))
-                        .lineLimit(1)
-                    
-                    HStack(spacing: 6) {
-                        Text(song.displayArtist)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        
-                        if let album = song.album, !album.isEmpty {
-                            Text("·")
-                                .foregroundStyle(.secondary.opacity(0.5))
-                            Text(album)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        
-                        if song.duration > 0 {
-                            Text("·")
-                                .foregroundStyle(.secondary.opacity(0.5))
-                            Text(formatDuration(Int(song.duration)))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .lineLimit(1)
-                }
-                
-                Spacer(minLength: 0)
-                
-                Image(systemName: "play.circle.fill")
-                    .font(.title2)
-                    .foregroundStyle(isHovering ? .primary : .secondary)
+                    .frame(width: 32, height: 32)
+                    .contentShape(Rectangle())
             }
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(isHovering ? Color.primary.opacity(0.06) : Color.clear)
-            .cornerRadius(10)
+            .buttonStyle(.plain)
+            .help("收藏到「在线音乐」歌单")
         }
-        .buttonStyle(.plain)
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(isHovering ? Color.primary.opacity(0.06) : Color.clear)
+        .cornerRadius(10)
         .onHover { hovering in
             isHovering = hovering
         }
