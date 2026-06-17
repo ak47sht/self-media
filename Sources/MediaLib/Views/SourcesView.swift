@@ -1545,21 +1545,3 @@ struct SourceRowView: View {
     }
 
 }
-
-// MARK: - Online Music Provider
-
-private enum OnlineMusicProvider: String, CaseIterable, Identifiable {
-    case netease
-    case gdstudio
-    case custom
-    
-    var id: String { rawValue }
-    
-    func toOnlineSourceKind() -> OnlineSourceKind {
-        switch self {
-        case .netease: return .onlineMusicNetease
-        case .gdstudio: return .onlineMusicGDStudio
-        case .custom: return .onlineMusicCustom
-        }
-    }
-}

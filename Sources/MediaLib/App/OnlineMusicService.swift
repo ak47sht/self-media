@@ -372,16 +372,27 @@ public actor OnlineMusicService {
 
 // MARK: - 在线音乐提供商
 
-public enum OnlineMusicProvider: String, Codable, Sendable, Hashable {
+public enum OnlineMusicProvider: String, Codable, Sendable, Hashable, CaseIterable, Identifiable {
     case netease
     case gdstudio
     case custom  // 自定义 API（URL 存在 OnlineSourceConfig.onlineMusicBaseURL）
+    
+    public var id: String { rawValue }
     
     public var displayName: String {
         switch self {
         case .netease: return "网易云音乐"
         case .gdstudio: return "GD Studio"
         case .custom: return "自定义"
+        }
+    }
+    
+    /// 转换为 OnlineSourceKind（用于存储配置）
+    public func toOnlineSourceKind() -> OnlineSourceKind {
+        switch self {
+        case .netease: return .onlineMusicNetease
+        case .gdstudio: return .onlineMusicGDStudio
+        case .custom: return .onlineMusicCustom
         }
     }
 }
