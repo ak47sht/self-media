@@ -257,23 +257,22 @@ struct VODLibraryView: View {
             }
             if videos.isEmpty {
                 loadVideos(page: 1)
+            } else if filteredVideos.isEmpty {
+                // 如果 videos 有数据但 filteredVideos 为空（比如从其他页面返回），重新筛选
+                filterVideos()
             }
-            // filterVideos() 会被 .onChange(of: videos) 自动触发，无需手动调用
         }
         .onChange(of: selectedTypeID) { newValue in
             // 类型切换时重新从 API 加载第一页
             DebugLog.log("VODLibraryView", "类型切换为: \(newValue.map(String.init) ?? "全部")")
             videos = []
+            filteredVideos = []
             currentPage = 1
             hasMorePages = true
             loadVideos(page: 1)
         }
         .onChange(of: searchText) { newValue in
             // 搜索文本变化时实时筛选
-            filterVideos()
-        }
-        .onChange(of: videos) { _ in
-            // videos 变化时重新筛选
             filterVideos()
         }
     }
@@ -378,6 +377,9 @@ struct VODLibraryView: View {
                     self.hasMorePages = result.hasMore
                     self.isLoading = false
                     self.isLoadingMore = false
+                    
+                    // 数据加载完成后更新筛选结果
+                    self.filterVideos()
                     
                     DebugLog.log("VODLibraryView", "  当前页: \(result.page), 还有更多: \(self.hasMorePages)")
                 }
