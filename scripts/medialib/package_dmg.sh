@@ -288,6 +288,12 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
       </array>
     </dict>
   </array>
+  <!-- 允许在线音乐/视频源使用 HTTP 明文连接（网易云等 CDN 返回的播放地址为 HTTP） -->
+  <key>NSAppTransportSecurity</key>
+  <dict>
+    <key>NSAllowsArbitraryLoadsInMedia</key>
+    <true/>
+  </dict>
 </dict>
 </plist>
 PLIST
