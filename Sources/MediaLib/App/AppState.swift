@@ -1313,7 +1313,8 @@ final class AppState: ObservableObject {
 
     func upsertMediaItem(_ item: MediaItem) throws {
         guard let mediaRepository else {
-            throw MediaLibError.critical(\"数据库不可用\")
+            struct DatabaseUnavailableError: Error {}
+            throw DatabaseUnavailableError()
         }
         try mediaRepository.upsert(item)
     }
