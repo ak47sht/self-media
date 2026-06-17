@@ -244,7 +244,8 @@ struct VODDetailView: View {
                 let episodeCounts = routes.map { $0.episodes.count }
                 DebugLog.log("VODDetailView", "  各线路剧集数: \(episodeCounts)")
             }
-            
+        }
+        .task {
             if selectedRouteIndex == nil && !routes.isEmpty {
                 selectedRouteIndex = 0
                 DebugLog.log("VODDetailView", "  自动选择第一条线路")
