@@ -5385,7 +5385,14 @@ final class AppState: ObservableObject {
         
         let service = OnlineMusicService()
         let result = try await service.playURL(
-            song: OnlineMusicService.Song(id: songID, name: item.title, artist: item.artist ?? "", album: item.album),
+            song: OnlineMusicService.Song(
+                id: songID,
+                name: item.title,
+                artist: item.artist ?? "",
+                album: item.album,
+                duration: item.duration ?? 0,
+                coverURL: item.onlineMusicCoverURL
+            ),
             neteaseAPI: neteaseAPI,
             gdstudioAPI: gdstudioAPI
         )
