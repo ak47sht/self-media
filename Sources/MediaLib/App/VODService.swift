@@ -1,3 +1,4 @@
+import CFNetwork
 import Foundation
 import MediaLibCore
 
@@ -15,9 +16,35 @@ public struct VODPagedResult: Sendable {
 /// 支持 CMS JSON API (苹果CMS/飞飞CMS 格式)
 public class VODService {
     private let db: DatabaseManager
+    private let directSession: URLSession
+    private let systemSession: URLSession
 
     public init(db: DatabaseManager) {
         self.db = db
+        self.directSession = Self.makeDirectSession()
+        self.systemSession = .shared
+    }
+
+    private static func makeDirectSession() -> URLSession {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 15
+        configuration.timeoutIntervalForResource = 30
+        configuration.waitsForConnectivity = false
+        configuration.connectionProxyDictionary = [
+            kCFNetworkProxiesHTTPEnable as String: 0,
+            kCFNetworkProxiesHTTPSEnable as String: 0,
+            kCFNetworkProxiesSOCKSEnable as String: 0
+        ]
+        return URLSession(configuration: configuration)
+    }
+
+    private func loadData(for request: URLRequest) async throws -> (Data, URLResponse) {
+        do {
+            return try await directSession.data(for: request)
+        } catch {
+            DebugLog.log("VODService", "直连请求失败，尝试系统网络配置: \(error.localizedDescription)")
+            return try await systemSession.data(for: request)
+        }
     }
 
     /// 从 CMS API 拉取视频列表并缓存
@@ -71,7 +98,7 @@ public class VODService {
         request.timeoutInterval = 15
 
         let startTime = Date()
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await loadData(for: request)
         let elapsed = Date().timeIntervalSince(startTime)
         try validateHTTPResponse(response)
 
@@ -139,7 +166,7 @@ public class VODService {
         request.setValue("MediaLib/1.0", forHTTPHeaderField: "User-Agent")
         request.timeoutInterval = 15
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await loadData(for: request)
         try validateHTTPResponse(response)
 
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],

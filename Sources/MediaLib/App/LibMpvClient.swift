@@ -1,4 +1,5 @@
 import AppKit
+import CFNetwork
 import Darwin
 import Foundation
 import MediaLibCore
@@ -129,6 +130,7 @@ final class LibMpvClient {
         if networkMemoryBufferingEnabled {
             applyNetworkMemoryBufferingOptions()
         }
+        applySystemProxyIfAvailable()
         try setOptionString("start", "\(max(startTime, 0))")
         // 音量增强上限 200%：实际是否超过 100% 由控制器的 volumeBoost 决定。
         try? setOptionString("volume-max", "200")
@@ -316,6 +318,43 @@ final class LibMpvClient {
         try? setOptionString("demuxer-max-bytes", NetworkMemoryBuffer.maxBytes)
         try? setOptionString("demuxer-max-back-bytes", NetworkMemoryBuffer.maxBackBytes)
         try? setOptionString("cache-pause", "yes")
+    }
+
+    private func applySystemProxyIfAvailable() {
+        guard let proxyURL = Self.systemProxyURL() else { return }
+        try? setOptionString("http-proxy", proxyURL)
+        setenv("http_proxy", proxyURL, 1)
+        setenv("HTTP_PROXY", proxyURL, 1)
+        setenv("https_proxy", proxyURL, 1)
+        setenv("HTTPS_PROXY", proxyURL, 1)
+    }
+
+    private static func systemProxyURL() -> String? {
+        guard let unmanagedSettings = CFNetworkCopySystemProxySettings() else { return nil }
+        let settings = unmanagedSettings.takeRetainedValue() as NSDictionary
+
+        if let enabled = settings[kCFNetworkProxiesHTTPSEnable as String] as? NSNumber,
+           enabled.boolValue,
+           let host = settings[kCFNetworkProxiesHTTPSProxy as String] as? String,
+           let port = settings[kCFNetworkProxiesHTTPSPort as String] as? NSNumber {
+            return "http://\(host):\(port.intValue)"
+        }
+
+        if let enabled = settings[kCFNetworkProxiesHTTPEnable as String] as? NSNumber,
+           enabled.boolValue,
+           let host = settings[kCFNetworkProxiesHTTPProxy as String] as? String,
+           let port = settings[kCFNetworkProxiesHTTPPort as String] as? NSNumber {
+            return "http://\(host):\(port.intValue)"
+        }
+
+        if let enabled = settings[kCFNetworkProxiesSOCKSEnable as String] as? NSNumber,
+           enabled.boolValue,
+           let host = settings[kCFNetworkProxiesSOCKSProxy as String] as? String,
+           let port = settings[kCFNetworkProxiesSOCKSPort as String] as? NSNumber {
+            return "socks5://\(host):\(port.intValue)"
+        }
+
+        return nil
     }
 
     private func check(_ code: Int32) throws {

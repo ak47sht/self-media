@@ -37,10 +37,11 @@ actor VODURLResolver {
             )
         }
 
-        // 检查是否是直连流
-        let lowercased = url.lowercased()
+        // 检查是否是直连流。只看 URL path 后缀，避免把
+        // https://player.example/?url=https://cdn/video.m3u8 这类播放器页面误判为直连流。
+        let pathExtension = URLComponents(string: url)?.path.lowercased() ?? url.lowercased()
 
-        if lowercased.contains(".m3u8") {
+        if pathExtension.hasSuffix(".m3u8") {
             return VODURLClassification(
                 type: .directStream,
                 originalURL: url,
@@ -48,11 +49,11 @@ actor VODURLResolver {
             )
         }
 
-        if lowercased.range(of: #"\.(mp4|webm|mov)(\?|$)"#, options: .regularExpression) != nil {
+        if pathExtension.range(of: #"\.(mp4|webm|mov|flv)$"#, options: .regularExpression) != nil {
             return VODURLClassification(
                 type: .directStream,
                 originalURL: url,
-                note: "直连 MP4/WebM/MOV 视频"
+                note: "直连 MP4/WebM/MOV/FLV 视频"
             )
         }
 
@@ -215,7 +216,7 @@ private class WebViewCoordinator: NSObject, WKNavigationDelegate {
             function isPlayableUrl(value) {
                 if (typeof value !== 'string' || value.length === 0) { return false; }
                 if (value.indexOf('blob:') === 0) { return false; }
-                return value.indexOf('.m3u8') !== -1 || value.indexOf('.mp4') !== -1;
+                return /\.(m3u8|mp4|webm|mov|flv)(\?|$)/i.test(value);
             }
 
             var videoEl = document.querySelector('video');
@@ -246,6 +247,10 @@ private class WebViewCoordinator: NSObject, WKNavigationDelegate {
                 var mp4Match = content.match(/https?:\\/\\/[^\\s"'<>]+\\.mp4[^\\s"'<>]*/);
                 if (mp4Match) {
                     return mp4Match[0];
+                }
+                var otherVideoMatch = content.match(/https?:\\/\\/[^\\s"'<>]+\\.(webm|mov|flv)[^\\s"'<>]*/);
+                if (otherVideoMatch) {
+                    return otherVideoMatch[0];
                 }
             }
 
