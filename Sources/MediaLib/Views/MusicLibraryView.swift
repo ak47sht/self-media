@@ -360,6 +360,7 @@ struct MusicLibraryView: View {
     @State private var searchRefreshTask: Task<Void, Never>?
     @State private var lyricsRefreshTask: Task<Void, Never>?
     @State private var showingOnlineSearch = false
+    @State private var onlineSearchMode: OnlineMusicSheetMode = .search
     @State private var onlineSearchResults: [OnlineMusicService.Song] = []
 
     @MainActor
@@ -496,6 +497,7 @@ struct MusicLibraryView: View {
             }
             .sheet(isPresented: $showingOnlineSearch) {
                 OnlineMusicSearchSheet(
+                    initialMode: onlineSearchMode,
                     onPlay: { [weak appState] song in
                         showingOnlineSearch = false
                         guard let appState else { return }
@@ -683,6 +685,15 @@ struct MusicLibraryView: View {
                 .buttonStyle(LiquidGlassButtonStyle(cornerRadius: 13, horizontalPadding: 12, minHeight: 34, prominent: true))
             } else {
                 Button {
+                    onlineSearchMode = .recommendations
+                    showingOnlineSearch = true
+                } label: {
+                    Label("在线推荐", systemImage: "sparkles")
+                }
+                .disabled(appState.sources.filter { $0.sourceKind == .onlineMusic }.isEmpty)
+
+                Button {
+                    onlineSearchMode = .search
                     showingOnlineSearch = true
                 } label: {
                     Label("在线搜索", systemImage: "magnifyingglass.circle")
@@ -2538,6 +2549,28 @@ struct MusicSmartPlaylistDetailView: View {
 
 // MARK: - Online Music Search Sheet
 
+private enum OnlineMusicSheetMode: Sendable {
+    case search
+    case recommendations
+}
+
+private struct OnlineMusicRecommendation: Identifiable, Sendable {
+    let id: String
+    let title: String
+    let subtitle: String
+    let query: String
+    let systemImage: String
+
+    static let presets: [OnlineMusicRecommendation] = [
+        .init(id: "hot-cn", title: "华语热歌", subtitle: "近期常听与热门中文歌", query: "华语 热歌", systemImage: "flame"),
+        .init(id: "relax", title: "放松陪伴", subtitle: "适合写作、通勤、夜晚", query: "放松 治愈", systemImage: "moon.stars"),
+        .init(id: "work", title: "专注工作", subtitle: "轻音乐、电子、Lo-Fi", query: "lofi 工作 学习", systemImage: "headphones"),
+        .init(id: "classic", title: "经典老歌", subtitle: "粤语、华语、怀旧金曲", query: "经典 老歌", systemImage: "music.quarternote.3"),
+        .init(id: "jpop", title: "日语流行", subtitle: "J-Pop / ACG / City Pop", query: "日语 流行", systemImage: "sparkles"),
+        .init(id: "english", title: "欧美流行", subtitle: "Pop / Rock / R&B", query: "欧美 流行", systemImage: "guitars")
+    ]
+}
+
 private struct OnlineMusicSearchSheet: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.dismiss) private var dismiss
@@ -2547,15 +2580,16 @@ private struct OnlineMusicSearchSheet: View {
     @State private var searchTask: Task<Void, Never>?
     @State private var searchGeneration = 0
     @State private var searchErrorMessage: String?
+    let initialMode: OnlineMusicSheetMode
     let onPlay: (OnlineMusicService.Song) -> Void
     let onSave: (OnlineMusicService.Song) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             AppSheetHeader(
-                title: "在线搜索",
-                subtitle: "搜索并播放在线音乐",
-                systemImage: "magnifyingglass.circle"
+                title: initialMode == .recommendations ? "在线推荐" : "在线搜索",
+                subtitle: initialMode == .recommendations ? "选择推荐主题，快速找歌并加入在线音乐歌单" : "搜索并播放在线音乐",
+                systemImage: initialMode == .recommendations ? "sparkles" : "magnifyingglass.circle"
             )
 
             HStack(spacing: 12) {
@@ -2582,7 +2616,12 @@ private struct OnlineMusicSearchSheet: View {
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 10) {
-                    if searchResults.isEmpty && !isSearching {
+                    if initialMode == .recommendations && searchResults.isEmpty && !isSearching {
+                        recommendationGrid
+                    }
+
+                    let shouldShowEmptyState = searchResults.isEmpty && !isSearching && (initialMode == .search || !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || searchErrorMessage != nil)
+                    if shouldShowEmptyState {
                         EmptyStateView(
                             title: searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "输入关键词开始搜索" : (searchErrorMessage == nil ? "无结果" : "搜索失败"),
                             systemImage: searchErrorMessage == nil ? "music.note.list" : "wifi.exclamationmark",
@@ -2608,6 +2647,18 @@ private struct OnlineMusicSearchSheet: View {
         }
         .padding(.horizontal, 2)
         .appSheetChrome(width: AppSheetMetrics.wideWidth, maxHeight: 600)
+    }
+
+    private var recommendationGrid: some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 210), spacing: 10)], alignment: .leading, spacing: 10) {
+            ForEach(OnlineMusicRecommendation.presets) { recommendation in
+                OnlineMusicRecommendationCard(recommendation: recommendation) {
+                    searchText = recommendation.query
+                    performSearch(immediate: true)
+                }
+            }
+        }
+        .padding(.bottom, 6)
     }
 
     private func performSearch(immediate: Bool) {
@@ -2678,6 +2729,43 @@ private struct OnlineMusicSearchSheet: View {
                 }
             }
         }
+    }
+}
+
+private struct OnlineMusicRecommendationCard: View {
+    let recommendation: OnlineMusicRecommendation
+    let action: () -> Void
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Image(systemName: recommendation.systemImage)
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(AppColors.selectedGlassTint)
+                    .frame(width: 36, height: 36)
+                    .background(Color.primary.opacity(0.06))
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(recommendation.title)
+                        .font(.callout.weight(.semibold))
+                        .lineLimit(1)
+                    Text(recommendation.subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
+            .staticSurfaceBackground(cornerRadius: 14, thickness: 0.9)
+            .repeatedSurfaceHover(isHovering, cornerRadius: 14, tint: AppColors.pointerLightTint, intensity: 0.78)
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
     }
 }
 

@@ -202,9 +202,12 @@ struct VODDetailView: View {
                                     let actualIndex = startIndex + pageIndex
                                     EpisodeButton(
                                         title: episode.name,
-                                        index: actualIndex + 1
+                                        index: actualIndex + 1,
+                                        fallbackTitle: fallbackRouteTitle(forEpisodeIndex: actualIndex, currentRouteIndex: selectedIndex, routes: routes)
                                     ) {
                                         playVideo(episode: episode, route: selectedRoute.name)
+                                    } onPlayFallback: {
+                                        playBestFallback(forEpisodeIndex: actualIndex, currentRouteIndex: selectedIndex, routes: routes)
                                     }
                                 }
                             }
@@ -282,6 +285,30 @@ struct VODDetailView: View {
         return "需检查"
     }
 
+    private func fallbackRouteTitle(forEpisodeIndex episodeIndex: Int, currentRouteIndex: Int, routes: [VODPlayLine]) -> String? {
+        guard let candidate = bestFallbackEpisode(forEpisodeIndex: episodeIndex, currentRouteIndex: currentRouteIndex, routes: routes) else { return nil }
+        return candidate.route.name
+    }
+
+    private func playBestFallback(forEpisodeIndex episodeIndex: Int, currentRouteIndex: Int, routes: [VODPlayLine]) {
+        guard let candidate = bestFallbackEpisode(forEpisodeIndex: episodeIndex, currentRouteIndex: currentRouteIndex, routes: routes) else { return }
+        selectedRouteIndex = candidate.routeIndex
+        playVideo(episode: candidate.episode, route: candidate.route.name)
+    }
+
+    private func bestFallbackEpisode(forEpisodeIndex episodeIndex: Int, currentRouteIndex: Int, routes: [VODPlayLine]) -> (routeIndex: Int, route: VODPlayLine, episode: VODEpisode)? {
+        let candidates = routes.enumerated().compactMap { index, route -> (routeIndex: Int, route: VODPlayLine, episode: VODEpisode, score: Int)? in
+            guard index != currentRouteIndex, episodeIndex < route.episodes.count else { return nil }
+            let episode = route.episodes[episodeIndex]
+            let score = VODURLResolver.isDirectStreamURL(episode.url) ? 0 : (episode.url.lowercased().hasPrefix("http") ? 1 : 2)
+            return (index, route, episode, score)
+        }
+        return candidates.sorted { lhs, rhs in
+            if lhs.score != rhs.score { return lhs.score < rhs.score }
+            return lhs.routeIndex < rhs.routeIndex
+        }.first.map { ($0.routeIndex, $0.route, $0.episode) }
+    }
+
     private func playVideo(episode: VODEpisode, route: String) {
         DebugLog.log("VODDetailView", "▶️ 开始播放")
         DebugLog.log("VODDetailView", "  视频: \(video.name)")
@@ -337,19 +364,35 @@ private struct RouteButton: View {
 private struct EpisodeButton: View {
     let title: String
     let index: Int
+    let fallbackTitle: String?
     let action: () -> Void
+    let onPlayFallback: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            Text(title.isEmpty ? "第\(index)集" : title)
-                .font(.callout)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
-                .background(Color.black.opacity(0.2))
-                .foregroundStyle(.primary)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+        HStack(spacing: 6) {
+            Button(action: action) {
+                Text(title.isEmpty ? "第\(index)集" : title)
+                    .font(.callout)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(Color.black.opacity(0.2))
+                    .foregroundStyle(.primary)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+            .buttonStyle(.plain)
+
+            if let fallbackTitle {
+                Button(action: onPlayFallback) {
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                        .font(.caption.weight(.semibold))
+                        .frame(width: 32, height: 36)
+                        .background(Color.black.opacity(0.16))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+                .buttonStyle(.plain)
+                .help("切到同集线路：\(fallbackTitle)")
+            }
         }
-        .buttonStyle(.plain)
     }
 }

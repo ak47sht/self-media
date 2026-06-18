@@ -125,6 +125,9 @@ private struct AddMediaSourceWizardSheet: View {
     // VOD source fields
     @State private var vodName = ""
     @State private var vodAPIURL = ""
+    @State private var vodPreview: OnlineSourcePreview?
+    @State private var vodPreviewError: String?
+    @State private var isLoadingVODPreview = false
 
     // TVBox subscription fields
     @State private var tvboxName = "TVBox"
@@ -439,6 +442,29 @@ private struct AddMediaSourceWizardSheet: View {
             sectionTitle("CMS API 地址")
             TextField("https://api.example.com/api.php/provide/vod/", text: $vodAPIURL)
                 .glassFormField()
+
+            HStack(spacing: 10) {
+                Button {
+                    loadVODPreview()
+                } label: {
+                    Label(isLoadingVODPreview ? "测试中" : "测试源", systemImage: "checkmark.seal")
+                }
+                .buttonStyle(LiquidGlassButtonStyle(cornerRadius: 10, horizontalPadding: 12, minHeight: 32, prominent: true))
+                .disabled(vodAPIURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isLoadingVODPreview)
+
+                if let vodPreview {
+                    Text(vodPreview.message)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+
+            if let vodPreviewError {
+                AppInfoNote(text: vodPreviewError, systemImage: "exclamationmark.triangle")
+            } else if let vodPreview {
+                sourcePreviewPanel(vodPreview)
+            }
             
             AppInfoNote(
                 text: "支持苹果CMS、飞飞CMS等 JSON API 格式。导入后会缓存视频列表，支持多线路播放。",
@@ -485,6 +511,23 @@ private struct AddMediaSourceWizardSheet: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func sourcePreviewPanel(_ preview: OnlineSourcePreview) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(preview.title, systemImage: "checkmark.circle.fill")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.green)
+            if !preview.samples.isEmpty {
+                Text(preview.samples.joined(separator: " · "))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .staticSurfaceBackground(cornerRadius: 12, thickness: 0.7)
     }
 
     private func tvboxPreviewPanel(_ preview: TVBoxSubscriptionPreview) -> some View {
@@ -733,6 +776,30 @@ private struct AddMediaSourceWizardSheet: View {
             return .source
         case .settings:
             return .configure
+        }
+    }
+
+    private func loadVODPreview() {
+        let url = vodAPIURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !url.isEmpty else { return }
+        isLoadingVODPreview = true
+        vodPreview = nil
+        vodPreviewError = nil
+        Task {
+            do {
+                let preview = try await OnlineSourcePreviewService().previewVOD(apiBase: url)
+                await MainActor.run {
+                    self.vodPreview = preview
+                    self.vodPreviewError = nil
+                    self.isLoadingVODPreview = false
+                }
+            } catch {
+                await MainActor.run {
+                    self.vodPreview = nil
+                    self.vodPreviewError = error.localizedDescription
+                    self.isLoadingVODPreview = false
+                }
+            }
         }
     }
 
