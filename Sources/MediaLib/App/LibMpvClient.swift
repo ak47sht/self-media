@@ -1,5 +1,4 @@
 import AppKit
-import CFNetwork
 import Darwin
 import Foundation
 import MediaLibCore
@@ -130,7 +129,6 @@ final class LibMpvClient {
         if networkMemoryBufferingEnabled {
             applyNetworkMemoryBufferingOptions()
         }
-        applySystemProxyIfAvailable()
         try setOptionString("start", "\(max(startTime, 0))")
         // 音量增强上限 200%：实际是否超过 100% 由控制器的 volumeBoost 决定。
         try? setOptionString("volume-max", "200")
@@ -320,41 +318,31 @@ final class LibMpvClient {
         try? setOptionString("cache-pause", "yes")
     }
 
-    private func applySystemProxyIfAvailable() {
-        guard let proxyURL = Self.systemProxyURL() else { return }
-        try? setOptionString("http-proxy", proxyURL)
-        setenv("http_proxy", proxyURL, 1)
-        setenv("HTTP_PROXY", proxyURL, 1)
-        setenv("https_proxy", proxyURL, 1)
-        setenv("HTTPS_PROXY", proxyURL, 1)
+    func configureRemotePlaybackHeaders(for urlString: String, referer: String? = nil) {
+        guard URL(string: urlString)?.scheme?.lowercased().map({ ["http", "https"].contains($0) }) == true else { return }
+        setString("user-agent", Self.browserUserAgent)
+        if let referer = referer?.trimmingCharacters(in: .whitespacesAndNewlines),
+           Self.isHTTPURL(referer) {
+            setString("referrer", referer)
+            setString("http-header-fields", "Referer: \(referer)")
+        } else if let referer = Self.defaultReferer(for: urlString) {
+            setString("referrer", referer)
+            setString("http-header-fields", "Referer: \(referer)")
+        }
     }
 
-    private static func systemProxyURL() -> String? {
-        guard let unmanagedSettings = CFNetworkCopySystemProxySettings() else { return nil }
-        let settings = unmanagedSettings.takeRetainedValue() as NSDictionary
+    private static let browserUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
 
-        if let enabled = settings[kCFNetworkProxiesHTTPSEnable as String] as? NSNumber,
-           enabled.boolValue,
-           let host = settings[kCFNetworkProxiesHTTPSProxy as String] as? String,
-           let port = settings[kCFNetworkProxiesHTTPSPort as String] as? NSNumber {
-            return "http://\(host):\(port.intValue)"
-        }
+    private static func defaultReferer(for urlString: String) -> String? {
+        guard let url = URL(string: urlString),
+              let scheme = url.scheme,
+              let host = url.host else { return nil }
+        return "\(scheme)://\(host)/"
+    }
 
-        if let enabled = settings[kCFNetworkProxiesHTTPEnable as String] as? NSNumber,
-           enabled.boolValue,
-           let host = settings[kCFNetworkProxiesHTTPProxy as String] as? String,
-           let port = settings[kCFNetworkProxiesHTTPPort as String] as? NSNumber {
-            return "http://\(host):\(port.intValue)"
-        }
-
-        if let enabled = settings[kCFNetworkProxiesSOCKSEnable as String] as? NSNumber,
-           enabled.boolValue,
-           let host = settings[kCFNetworkProxiesSOCKSProxy as String] as? String,
-           let port = settings[kCFNetworkProxiesSOCKSPort as String] as? NSNumber {
-            return "socks5://\(host):\(port.intValue)"
-        }
-
-        return nil
+    private static func isHTTPURL(_ value: String) -> Bool {
+        guard let scheme = URL(string: value)?.scheme?.lowercased() else { return false }
+        return scheme == "http" || scheme == "https"
     }
 
     private func check(_ code: Int32) throws {

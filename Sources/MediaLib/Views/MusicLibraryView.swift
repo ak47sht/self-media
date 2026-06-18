@@ -2539,6 +2539,9 @@ private struct OnlineMusicSearchSheet: View {
     @State private var searchText = ""
     @State private var searchResults: [OnlineMusicService.Song] = []
     @State private var isSearching = false
+    @State private var searchTask: Task<Void, Never>?
+    @State private var searchGeneration = 0
+    @State private var searchErrorMessage: String?
     let onPlay: (OnlineMusicService.Song) -> Void
     let onSave: (OnlineMusicService.Song) -> Void
     
@@ -2557,11 +2560,14 @@ private struct OnlineMusicSearchSheet: View {
                     .background(Color.primary.opacity(0.06))
                     .cornerRadius(10)
                     .onSubmit {
-                        performSearch()
+                        performSearch(immediate: true)
+                    }
+                    .onChange(of: searchText) { _ in
+                        performSearch(immediate: false)
                     }
                 
                 Button {
-                    performSearch()
+                    performSearch(immediate: true)
                 } label: {
                     Label(isSearching ? "搜索中" : "搜索", systemImage: "magnifyingglass")
                 }
@@ -2573,9 +2579,9 @@ private struct OnlineMusicSearchSheet: View {
                 LazyVStack(alignment: .leading, spacing: 10) {
                     if searchResults.isEmpty && !isSearching {
                         EmptyStateView(
-                            title: searchText.isEmpty ? "输入关键词开始搜索" : "无结果",
-                            systemImage: "music.note.list",
-                            message: searchText.isEmpty ? "" : "换个关键词试试"
+                            title: searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "输入关键词开始搜索" : (searchErrorMessage == nil ? "无结果" : "搜索失败"),
+                            systemImage: searchErrorMessage == nil ? "music.note.list" : "wifi.exclamationmark",
+                            message: searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "输入歌曲名或歌手开始搜索" : (searchErrorMessage ?? "换个关键词或切换在线音乐源试试")
                         )
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 60)
@@ -2599,31 +2605,39 @@ private struct OnlineMusicSearchSheet: View {
         .appSheetChrome(width: AppSheetMetrics.wideWidth, maxHeight: 600)
     }
     
-    private func performSearch() {
+    private func performSearch(immediate: Bool) {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return }
-        
+        searchGeneration += 1
+        let generation = searchGeneration
+        searchTask?.cancel()
+        searchErrorMessage = nil
+        guard !query.isEmpty else {
+            isSearching = false
+            searchResults = []
+            return
+        }
+
         isSearching = true
-        
-        Task {
-            defer { 
-                Task { @MainActor in
-                    isSearching = false
-                }
+        searchTask = Task {
+            if !immediate {
+                try? await Task.sleep(nanoseconds: 350_000_000)
+                guard !Task.isCancelled else { return }
             }
-            
+
             // Extract API endpoints from online music sources
-            let onlineSources = appState.sources.filter { $0.sourceKind == .onlineMusic }
+            let onlineSources = await MainActor.run { appState.sources.filter { $0.sourceKind == .onlineMusic } }
             guard !onlineSources.isEmpty else {
                 await MainActor.run {
-                    appState.alert = AppAlert(title: "无可用的在线音乐源", message: "请先添加在线音乐源。")
+                    guard generation == searchGeneration else { return }
+                    isSearching = false
+                    searchErrorMessage = "请先添加在线音乐源。"
                 }
                 return
             }
-            
+
             var neteaseAPI: String?
             var gdstudioAPI: String?
-            
+
             for source in onlineSources {
                 guard let config = source.onlineConfig else { continue }
                 switch config.kind {
@@ -2635,17 +2649,24 @@ private struct OnlineMusicSearchSheet: View {
                     break
                 }
             }
-            
+
             do {
                 let service = OnlineMusicService()
                 let result = try await service.search(query: query, neteaseAPI: neteaseAPI, gdstudioAPI: gdstudioAPI)
                 await MainActor.run {
+                    guard generation == searchGeneration else { return }
                     searchResults = result.songs
+                    searchErrorMessage = nil
+                    isSearching = false
                 }
+            } catch is CancellationError {
+                return
             } catch {
                 await MainActor.run {
+                    guard generation == searchGeneration else { return }
                     searchResults = []
-                    appState.showError("搜索失败", error)
+                    searchErrorMessage = error.localizedDescription
+                    isSearching = false
                 }
             }
         }

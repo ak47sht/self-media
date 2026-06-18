@@ -7762,6 +7762,7 @@ final class MpvPlayerController: ObservableObject {
                 renderView?.needsDisplay = true
             }
             DebugLog.log("PlayerView", "  LibMpvClient 已创建，正在 loadFile...")
+            client.configureRemotePlaybackHeaders(for: filePath, referer: item?.sourcePath)
             try client.loadFile(filePath)
             DebugLog.log("PlayerView", "  ✅ loadFile 成功")
             applyVideoAdjustments(to: client)

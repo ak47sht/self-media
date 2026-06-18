@@ -145,7 +145,7 @@ public actor OnlineMusicService {
         var request = URLRequest(url: url)
         request.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
         
-        let (data, _) = try await session.data(for: request)
+        let data = try await loadData(for: request)
         
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let result = json["result"] as? [String: Any],
@@ -185,7 +185,7 @@ public actor OnlineMusicService {
         var request = URLRequest(url: url)
         request.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
         
-        let (data, _) = try await session.data(for: request)
+        let data = try await loadData(for: request)
         
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let dataArray = json["data"] as? [[String: Any]],
@@ -208,7 +208,7 @@ public actor OnlineMusicService {
         var request = URLRequest(url: url)
         request.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
         
-        let (data, _) = try await session.data(for: request)
+        let data = try await loadData(for: request)
         
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let lrc = json["lrc"] as? [String: Any],
@@ -233,7 +233,7 @@ public actor OnlineMusicService {
         var request = URLRequest(url: url)
         request.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
         
-        let (data, _) = try await session.data(for: request)
+        let data = try await loadData(for: request)
         
         return try parseNeteaseSearchResponse(data: data)
     }
@@ -248,7 +248,7 @@ public actor OnlineMusicService {
         var request = URLRequest(url: url)
         request.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
         
-        let (data, _) = try await session.data(for: request)
+        let data = try await loadData(for: request)
         
         return try parseNeteasePlayURLResponse(data: data)
     }
@@ -263,7 +263,7 @@ public actor OnlineMusicService {
         var request = URLRequest(url: url)
         request.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
         
-        let (data, _) = try await session.data(for: request)
+        let data = try await loadData(for: request)
         
         return try parseNeteaseLyricResponse(data: data)
     }
@@ -281,7 +281,7 @@ public actor OnlineMusicService {
         var request = URLRequest(url: url)
         request.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
         
-        let (data, _) = try await session.data(for: request)
+        let data = try await loadData(for: request)
         
         return try parseNeteaseSearchResponse(data: data)
     }
@@ -296,7 +296,7 @@ public actor OnlineMusicService {
         var request = URLRequest(url: url)
         request.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
         
-        let (data, _) = try await session.data(for: request)
+        let data = try await loadData(for: request)
         
         return try parseNeteasePlayURLResponse(data: data)
     }
@@ -311,11 +311,54 @@ public actor OnlineMusicService {
         var request = URLRequest(url: url)
         request.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
         
-        let (data, _) = try await session.data(for: request)
+        let data = try await loadData(for: request)
         
         return try parseNeteaseLyricResponse(data: data)
     }
     
+    // MARK: - Network helpers
+
+    private func loadData(for request: URLRequest) async throws -> Data {
+        do {
+            let (data, response) = try await session.data(for: request)
+            try validateHTTPResponse(response)
+            return data
+        } catch is CancellationError {
+            throw OnlineMusicError.cancelled
+        } catch let error as URLError {
+            switch error.code {
+            case .notConnectedToInternet, .networkConnectionLost:
+                throw OnlineMusicError.networkUnavailable
+            case .timedOut:
+                throw OnlineMusicError.timeout
+            case .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed:
+                throw OnlineMusicError.providerUnavailable
+            case .cancelled:
+                throw OnlineMusicError.cancelled
+            default:
+                throw OnlineMusicError.networkError(error)
+            }
+        }
+    }
+
+    private func validateHTTPResponse(_ response: URLResponse) throws {
+        guard let httpResponse = response as? HTTPURLResponse else { return }
+        switch httpResponse.statusCode {
+        case 200...299:
+            return
+        case 401, 403:
+            throw OnlineMusicError.proxyRequired
+        case 404:
+            throw OnlineMusicError.notFound
+        case 429:
+            throw OnlineMusicError.rateLimited
+        case 500...599:
+            throw OnlineMusicError.providerUnavailable
+        default:
+            throw OnlineMusicError.httpStatus(httpResponse.statusCode)
+        }
+    }
+
     // MARK: - 响应解析辅助方法
     
     private func parseNeteaseSearchResponse(data: Data) throws -> [OnlineMusicTrack] {
@@ -403,6 +446,14 @@ public enum OnlineMusicError: LocalizedError {
     case invalidURL
     case parseError
     case noPlayURL
+    case networkUnavailable
+    case timeout
+    case providerUnavailable
+    case rateLimited
+    case notFound
+    case proxyRequired
+    case cancelled
+    case httpStatus(Int)
     case networkError(Error)
     
     public var errorDescription: String? {
@@ -410,11 +461,27 @@ public enum OnlineMusicError: LocalizedError {
         case .invalidURL:
             return "无效的 API 地址"
         case .parseError:
-            return "解析响应失败"
+            return "在线音乐接口返回格式异常，请换源或稍后再试。"
         case .noPlayURL:
-            return "未找到播放地址"
+            return "这首歌暂时没有可播放地址，试试其他结果。"
+        case .networkUnavailable:
+            return "网络连接不可用，请检查网络后重试。"
+        case .timeout:
+            return "在线音乐请求超时，请稍后重试。"
+        case .providerUnavailable:
+            return "在线音乐源暂时不可用，请稍后重试或切换音乐源。"
+        case .rateLimited:
+            return "请求过于频繁，在线音乐源正在限流，请稍后再试。"
+        case .notFound:
+            return "没有找到相关在线音乐资源。"
+        case .proxyRequired:
+            return "在线音乐源拒绝了请求，可能需要检查代理或更换音乐源。"
+        case .cancelled:
+            return "请求已取消。"
+        case .httpStatus(let status):
+            return "在线音乐源返回 HTTP \(status)。"
         case .networkError(let error):
-            return "网络错误: \(error.localizedDescription)"
+            return "网络错误：\(error.localizedDescription)"
         }
     }
 }

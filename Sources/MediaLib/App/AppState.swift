@@ -5373,11 +5373,12 @@ final class AppState: ObservableObject {
                     guard let self else { return }
                     do {
                         let resolver = VODURLResolver()
-                        let realURL = try await resolver.extractStreamURL(from: parserURL)
+                        let resolved = try await resolver.extractResolvedStream(from: parserURL)
                         try Task.checkCancellation()
-                        DebugLog.log("AppState", "  ✅ 第三方解析成功: \(realURL)")
+                        DebugLog.log("AppState", "  ✅ 第三方解析成功: \(resolved.url)")
                         var preparedItem = vodItem
-                        preparedItem.filePath = realURL
+                        preparedItem.filePath = resolved.url
+                        preparedItem.sourcePath = resolved.referer ?? parserURL
                         self.playPreparedItem(preparedItem, preserveSelection: preserveSelection)
                     } catch is CancellationError {
                         return
@@ -5394,12 +5395,13 @@ final class AppState: ObservableObject {
                     do {
                         DebugLog.log("AppState", "  开始解析网页播放器...")
                         let resolver = VODURLResolver()
-                        let realURL = try await resolver.extractStreamURL(from: urlString)
+                        let resolved = try await resolver.extractResolvedStream(from: urlString)
                         try Task.checkCancellation()
-                        DebugLog.log("AppState", "  ✅ 解析成功: \(realURL)")
+                        DebugLog.log("AppState", "  ✅ 解析成功: \(resolved.url)")
 
                         var preparedItem = vodItem
-                        preparedItem.filePath = realURL
+                        preparedItem.filePath = resolved.url
+                        preparedItem.sourcePath = resolved.referer ?? urlString
                         self.playPreparedItem(preparedItem, preserveSelection: preserveSelection)
                     } catch is CancellationError {
                         return

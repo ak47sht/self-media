@@ -132,7 +132,8 @@ struct VODDetailView: View {
                                 RouteButton(
                                     route: route.name,
                                     isSelected: selectedRouteIndex == index,
-                                    episodeCount: route.episodes.count
+                                    episodeCount: route.episodes.count,
+                                    capabilityLabel: routeCapabilityLabel(route)
                                 ) {
                                     selectedRouteIndex = index
                                 }
@@ -266,10 +267,19 @@ struct VODDetailView: View {
     private func preferredInitialRouteIndex(in routes: [VODPlayLine]) -> Int {
         routes.firstIndex { route in
             route.episodes.contains { episode in
-                let lowercased = episode.url.lowercased()
-                return lowercased.contains(".m3u8") || lowercased.contains(".mp4")
+                VODURLResolver.isDirectStreamURL(episode.url)
             }
         } ?? 0
+    }
+
+    private func routeCapabilityLabel(_ route: VODPlayLine) -> String {
+        if route.episodes.contains(where: { VODURLResolver.isDirectStreamURL($0.url) }) {
+            return "直连优先"
+        }
+        if route.episodes.contains(where: { $0.url.lowercased().hasPrefix("http") }) {
+            return "网页解析"
+        }
+        return "需检查"
     }
 
     private func playVideo(episode: VODEpisode, route: String) {
@@ -296,6 +306,7 @@ private struct RouteButton: View {
     let route: String
     let isSelected: Bool
     let episodeCount: Int
+    let capabilityLabel: String
     let action: () -> Void
 
     var body: some View {
@@ -303,9 +314,9 @@ private struct RouteButton: View {
             VStack(spacing: 4) {
                 Text(route)
                     .font(.callout.weight(.medium))
-                Text("\(episodeCount) 集")
+                Text("\(episodeCount) 集 · \(capabilityLabel)")
                     .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(isSelected ? .white.opacity(0.85) : .secondary)
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 12)

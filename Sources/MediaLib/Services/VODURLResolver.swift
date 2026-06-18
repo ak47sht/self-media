@@ -14,6 +14,13 @@ struct VODURLClassification {
     let note: String
 }
 
+struct VODResolvedStream {
+    let url: String
+    let referer: String?
+    let userAgent: String?
+    let sourcePageURL: String?
+}
+
 actor VODURLResolver {
 
     /// 分类 VOD URL
@@ -37,23 +44,11 @@ actor VODURLResolver {
             )
         }
 
-        // 检查是否是直连流。只看 URL path 后缀，避免把
-        // https://player.example/?url=https://cdn/video.m3u8 这类播放器页面误判为直连流。
-        let pathExtension = URLComponents(string: url)?.path.lowercased() ?? url.lowercased()
-
-        if pathExtension.hasSuffix(".m3u8") {
+        if isDirectStreamURL(url) {
             return VODURLClassification(
                 type: .directStream,
                 originalURL: url,
-                note: "直连 m3u8 流"
-            )
-        }
-
-        if pathExtension.range(of: #"\.(mp4|webm|mov|flv)$"#, options: .regularExpression) != nil {
-            return VODURLClassification(
-                type: .directStream,
-                originalURL: url,
-                note: "直连 MP4/WebM/MOV/FLV 视频"
+                note: "直连视频流"
             )
         }
 
@@ -71,6 +66,31 @@ actor VODURLResolver {
             originalURL: url,
             note: "不支持的 URL 格式"
         )
+    }
+
+
+    static func isDirectStreamURL(_ urlString: String) -> Bool {
+        let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+        let path = URLComponents(string: trimmed)?.path.lowercased() ?? trimmed.lowercased()
+        return path.hasSuffix(".m3u8")
+            || path.range(of: #"\.(mp4|webm|mov|flv)$"#, options: .regularExpression) != nil
+    }
+
+    static func normalizeResolvedURL(_ rawValue: String, baseURL: String? = nil) -> String? {
+        var value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return nil }
+        value = value
+            .replacingOccurrences(of: "\\/", with: "/")
+            .replacingOccurrences(of: "&amp;", with: "&")
+            .replacingOccurrences(of: "&#38;", with: "&")
+        if value.hasPrefix("//") {
+            let scheme = URL(string: baseURL ?? "")?.scheme ?? "https"
+            value = "\(scheme):\(value)"
+        } else if value.hasPrefix("/"), let baseURL, let base = URL(string: baseURL) {
+            value = URL(string: value, relativeTo: base)?.absoluteString ?? value
+        }
+        guard URL(string: value)?.scheme?.lowercased().map({ ["http", "https"].contains($0) }) == true else { return nil }
+        return value
     }
 
     /// 解析出源特定的第三方播放器 URL
@@ -100,7 +120,7 @@ actor VODURLResolver {
     }
 
     /// 用 WebView 从网页/分享页中提取真实的视频流 URL
-    func extractStreamURL(from webPageURL: String) async throws -> String {
+    func extractResolvedStream(from webPageURL: String) async throws -> VODResolvedStream {
         let coordinator = await MainActor.run { () -> WebViewCoordinator in
             let webView = WKWebView()
             let coordinator = WebViewCoordinator(
@@ -112,7 +132,7 @@ actor VODURLResolver {
         }
 
         // 等待 coordinator 完成（它会在完成时 resume 这个 continuation）
-        return try await withTaskCancellationHandler {
+        let url = try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 Task { @MainActor in
                     coordinator.setContinuation(continuation)
@@ -124,6 +144,17 @@ actor VODURLResolver {
                 coordinator.cancel()
             }
         }
+        return VODResolvedStream(
+            url: url,
+            referer: webPageURL,
+            userAgent: WebViewCoordinator.defaultUserAgent,
+            sourcePageURL: webPageURL
+        )
+    }
+
+    /// 旧调用点兼容：只返回标准化后的 URL 字符串。
+    func extractStreamURL(from webPageURL: String) async throws -> String {
+        try await extractResolvedStream(from: webPageURL).url
     }
 
     // MARK: - 旧 API（保留兼容）
@@ -137,6 +168,7 @@ actor VODURLResolver {
 // MARK: - WebView 协调器
 
 private class WebViewCoordinator: NSObject, WKNavigationDelegate {
+    static let defaultUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
     private var webView: WKWebView?
     let targetURL: String
     private var continuation: CheckedContinuation<String, Error>?
@@ -188,6 +220,7 @@ private class WebViewCoordinator: NSObject, WKNavigationDelegate {
             return
         }
         webView.navigationDelegate = self
+        webView.customUserAgent = Self.defaultUserAgent
 
         // 30 秒超时
         timeoutTask = Task { [weak self] in
@@ -276,8 +309,9 @@ private class WebViewCoordinator: NSObject, WKNavigationDelegate {
                 return
             }
 
-            if let urlString = result as? String, !urlString.isEmpty {
-                self.resumeWithSuccess(urlString)
+            if let urlString = result as? String,
+               let normalizedURL = VODURLResolver.normalizeResolvedURL(urlString, baseURL: self.targetURL) {
+                self.resumeWithSuccess(normalizedURL)
             } else {
                 self.scheduleExtractionRetry(on: webView)
             }
