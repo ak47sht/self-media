@@ -3245,6 +3245,8 @@ final class AppState: ObservableObject {
                 urlScheme = "onlinemusic://netease"
             case .onlineMusicGDStudio:
                 urlScheme = "onlinemusic://gdstudio"
+            case .onlineMusicTabos:
+                urlScheme = "onlinemusic://tabos"
             case .onlineMusicCustom:
                 urlScheme = "onlinemusic://custom"
             default:
@@ -5443,6 +5445,7 @@ final class AppState: ObservableObject {
               let providerString = item.onlineMusicProvider else {
             throw NSError(domain: "MediaLib", code: -1, userInfo: [NSLocalizedDescriptionKey: "缺少在线音乐 ID 或提供商信息"])
         }
+        let itemProvider = OnlineMusicProvider(rawValue: providerString)
 
         // 获取所有在线音乐源配置
         let onlineSources = sources.filter { $0.sourceKind == .onlineMusic }
@@ -5452,6 +5455,8 @@ final class AppState: ObservableObject {
 
         var neteaseAPI: String?
         var gdstudioAPI: String?
+        var tabosAPI: String?
+        var tabosQuality: String?
 
         for source in onlineSources {
             guard let config = source.onlineConfig else { continue }
@@ -5460,6 +5465,9 @@ final class AppState: ObservableObject {
                 neteaseAPI = config.apiBase
             case .onlineMusicGDStudio:
                 gdstudioAPI = config.apiBase
+            case .onlineMusicTabos:
+                tabosAPI = config.apiBase ?? "https://ios.25pan.com"
+                tabosQuality = config.quality
             default:
                 break
             }
@@ -5473,10 +5481,13 @@ final class AppState: ObservableObject {
                 artist: item.artist ?? "",
                 album: item.album,
                 duration: item.duration ?? 0,
-                coverURL: item.onlineMusicCoverURL
+                coverURL: item.onlineMusicCoverURL,
+                provider: itemProvider
             ),
             neteaseAPI: neteaseAPI,
-            gdstudioAPI: gdstudioAPI
+            gdstudioAPI: gdstudioAPI,
+            tabosAPI: tabosAPI,
+            quality: tabosQuality
         )
 
         var prepared = item

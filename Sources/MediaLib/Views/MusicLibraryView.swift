@@ -361,7 +361,7 @@ struct MusicLibraryView: View {
     @State private var lyricsRefreshTask: Task<Void, Never>?
     @State private var showingOnlineSearch = false
     @State private var onlineSearchResults: [OnlineMusicService.Song] = []
-    
+
     @MainActor
     private static func playOnlineSong(_ song: OnlineMusicService.Song, appState: AppState) async {
         let onlineSources = appState.sources.filter { $0.sourceKind == .onlineMusic }
@@ -369,10 +369,12 @@ struct MusicLibraryView: View {
             appState.alert = AppAlert(title: "无可用的在线音乐源", message: "请先添加在线音乐源。")
             return
         }
-        
+
         var neteaseAPI: String?
         var gdstudioAPI: String?
-        
+        var tabosAPI: String?
+        var tabosQuality: String?
+
         for source in onlineSources {
             guard let config = source.onlineConfig else { continue }
             switch config.kind {
@@ -380,15 +382,18 @@ struct MusicLibraryView: View {
                 neteaseAPI = config.apiBase
             case .onlineMusicGDStudio:
                 gdstudioAPI = config.apiBase
+            case .onlineMusicTabos:
+                tabosAPI = config.apiBase ?? "https://ios.25pan.com"
+                tabosQuality = config.quality
             default:
                 break
             }
         }
-        
+
         do {
             let service = OnlineMusicService()
-            let result = try await service.playURL(song: song, neteaseAPI: neteaseAPI, gdstudioAPI: gdstudioAPI)
-            
+            let result = try await service.playURL(song: song, neteaseAPI: neteaseAPI, gdstudioAPI: gdstudioAPI, tabosAPI: tabosAPI, quality: tabosQuality)
+
             let tempItem = MediaItem(
                 id: song.id,
                 type: .music,
@@ -398,7 +403,7 @@ struct MusicLibraryView: View {
                 sourcePath: onlineSources.first?.path,
                 filePath: result.url
             )
-            
+
             appState.play(tempItem)
         } catch {
             appState.showError("获取播放地址失败", error)
@@ -416,44 +421,44 @@ struct MusicLibraryView: View {
             sourcePath: "online_music",
             duration: song.duration > 0 ? song.duration : nil,
             onlineMusicID: song.id,
-            onlineMusicProvider: "netease",
+            onlineMusicProvider: song.provider?.rawValue ?? (song.id.contains(":") ? OnlineMusicProvider.tabos.rawValue : OnlineMusicProvider.netease.rawValue),
             onlineMusicCoverURL: song.coverURL
         )
-        
+
         // 确保"在线音乐"歌单存在
         let playlistName = "在线音乐"
         var targetPlaylist = appState.musicPlaylists.first { $0.name == playlistName }
-        
+
         if targetPlaylist == nil {
             // 创建新歌单
             targetPlaylist = appState.createMusicPlaylist(name: playlistName, tracks: [])
         }
-        
+
         guard let playlist = targetPlaylist else {
             appState.alert = AppAlert(title: "保存失败", message: "无法创建歌单")
             return
         }
-        
+
         // 检查是否已存在
         if playlist.itemIDs.contains(mediaItem.id) {
             appState.alert = AppAlert(title: "已收藏", message: "\(song.name) 已在「\(playlistName)」歌单中")
             return
         }
-        
+
         // 先保存 MediaItem 到数据库
-        
+
         do {
             try appState.upsertMediaItem(mediaItem)
-            
+
             // 添加到歌单
             appState.addMusicTracks([mediaItem], to: playlist)
-            
+
             appState.alert = AppAlert(title: "已收藏", message: "\(song.name) 已加入「\(playlistName)」歌单")
         } catch {
             appState.showError("保存失败", error)
         }
     }
-    
+
     var body: some View {
         bodyWithLifecycle
             .sheet(item: $metadataItem) { item in
@@ -528,7 +533,7 @@ struct MusicLibraryView: View {
             refreshActivePlaylistDrilldown()
         }
     }
-    
+
     private var contentBody: some View {
         Group {
             if usesStandaloneLongList {
@@ -538,7 +543,7 @@ struct MusicLibraryView: View {
             }
         }
     }
-    
+
     private var bodyWithLifecycle: some View {
         contentBody
             .suppressListHighlight()
@@ -604,7 +609,7 @@ struct MusicLibraryView: View {
                 lyricsRefreshTask?.cancel()
             }
     }
-    
+
     private func presentSectionTipIfNeeded(_ targetSection: MusicLibrarySection) {
         guard targetSection == .songs else { return }
         appState.showInterfaceTipOnce(
@@ -683,7 +688,7 @@ struct MusicLibraryView: View {
                     Label("在线搜索", systemImage: "magnifyingglass.circle")
                 }
                 .disabled(appState.sources.filter { $0.sourceKind == .onlineMusic }.isEmpty)
-                
+
                 Button {
                     appState.scanSources(for: .music(section))
                 } label: {
@@ -2528,7 +2533,7 @@ struct MusicSmartPlaylistDetailView: View {
             )
         }
     }
-    
+
 }
 
 // MARK: - Online Music Search Sheet
@@ -2544,7 +2549,7 @@ private struct OnlineMusicSearchSheet: View {
     @State private var searchErrorMessage: String?
     let onPlay: (OnlineMusicService.Song) -> Void
     let onSave: (OnlineMusicService.Song) -> Void
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             AppSheetHeader(
@@ -2552,7 +2557,7 @@ private struct OnlineMusicSearchSheet: View {
                 subtitle: "搜索并播放在线音乐",
                 systemImage: "magnifyingglass.circle"
             )
-            
+
             HStack(spacing: 12) {
                 TextField("输入歌曲名或歌手", text: $searchText)
                     .textFieldStyle(.plain)
@@ -2565,7 +2570,7 @@ private struct OnlineMusicSearchSheet: View {
                     .onChange(of: searchText) { _ in
                         performSearch(immediate: false)
                     }
-                
+
                 Button {
                     performSearch(immediate: true)
                 } label: {
@@ -2574,7 +2579,7 @@ private struct OnlineMusicSearchSheet: View {
                 .buttonStyle(LiquidGlassButtonStyle(cornerRadius: 10, horizontalPadding: 14, minHeight: 38, prominent: true))
                 .disabled(searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSearching)
             }
-            
+
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 10) {
                     if searchResults.isEmpty && !isSearching {
@@ -2593,7 +2598,7 @@ private struct OnlineMusicSearchSheet: View {
                 }
             }
             .frame(maxHeight: 400)
-            
+
             AppSheetActionFooter {
                 Button("关闭", role: .cancel) {
                     dismiss()
@@ -2604,7 +2609,7 @@ private struct OnlineMusicSearchSheet: View {
         .padding(.horizontal, 2)
         .appSheetChrome(width: AppSheetMetrics.wideWidth, maxHeight: 600)
     }
-    
+
     private func performSearch(immediate: Bool) {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         searchGeneration += 1
@@ -2637,6 +2642,7 @@ private struct OnlineMusicSearchSheet: View {
 
             var neteaseAPI: String?
             var gdstudioAPI: String?
+            var tabosAPI: String?
 
             for source in onlineSources {
                 guard let config = source.onlineConfig else { continue }
@@ -2645,6 +2651,8 @@ private struct OnlineMusicSearchSheet: View {
                     neteaseAPI = config.apiBase
                 case .onlineMusicGDStudio:
                     gdstudioAPI = config.apiBase
+                case .onlineMusicTabos:
+                    tabosAPI = config.apiBase ?? "https://ios.25pan.com"
                 default:
                     break
                 }
@@ -2652,7 +2660,7 @@ private struct OnlineMusicSearchSheet: View {
 
             do {
                 let service = OnlineMusicService()
-                let result = try await service.search(query: query, neteaseAPI: neteaseAPI, gdstudioAPI: gdstudioAPI)
+                let result = try await service.search(query: query, neteaseAPI: neteaseAPI, gdstudioAPI: gdstudioAPI, tabosAPI: tabosAPI)
                 await MainActor.run {
                     guard generation == searchGeneration else { return }
                     searchResults = result.songs
@@ -2678,7 +2686,7 @@ private struct OnlineMusicResultRow: View {
     let onPlay: (OnlineMusicService.Song) -> Void
     let onSave: (OnlineMusicService.Song) -> Void
     @State private var isHovering = false
-    
+
     var body: some View {
         HStack(spacing: 12) {
             // 播放按钮（点击整行也能播放）
@@ -2692,17 +2700,17 @@ private struct OnlineMusicResultRow: View {
                         .frame(width: 40, height: 40)
                         .background(Color.primary.opacity(0.06))
                         .cornerRadius(8)
-                    
+
                     VStack(alignment: .leading, spacing: 4) {
                         Text(song.name)
                             .font(.callout.weight(.medium))
                             .lineLimit(1)
-                        
+
                         HStack(spacing: 6) {
                             Text(song.displayArtist)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
-                            
+
                             if let album = song.album, !album.isEmpty {
                                 Text("·")
                                     .foregroundStyle(.secondary.opacity(0.5))
@@ -2710,7 +2718,15 @@ private struct OnlineMusicResultRow: View {
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
-                            
+
+                            if let provider = song.provider {
+                                Text("·")
+                                    .foregroundStyle(.secondary.opacity(0.5))
+                                Text(provider.displayName)
+                                    .font(.caption2.weight(.semibold))
+                                    .foregroundStyle(.blue)
+                            }
+
                             if song.duration > 0 {
                                 Text("·")
                                     .foregroundStyle(.secondary.opacity(0.5))
@@ -2721,16 +2737,16 @@ private struct OnlineMusicResultRow: View {
                         }
                         .lineLimit(1)
                     }
-                    
+
                     Spacer(minLength: 0)
-                    
+
                     Image(systemName: "play.circle.fill")
                         .font(.title2)
                         .foregroundStyle(isHovering ? .primary : .secondary)
                 }
             }
             .buttonStyle(.plain)
-            
+
             // 收藏按钮（右侧独立）
             Button {
                 onSave(song)
@@ -2752,7 +2768,7 @@ private struct OnlineMusicResultRow: View {
             isHovering = hovering
         }
     }
-    
+
     private func formatDuration(_ seconds: Int) -> String {
         let minutes = seconds / 60
         let secs = seconds % 60

@@ -23,6 +23,7 @@ struct VODLibraryView: View {
     @State private var selectedVideo: VODVideo?
     @State private var loadingTask: Task<Void, Never>?
     @State private var categoryTask: Task<Void, Never>?
+    @State private var searchDebounceTask: Task<Void, Never>?
     
     // displayVideos 计算属性在 sheet 弹出时会触发布局死循环，暂时禁用本地搜索
     // private var displayVideos: [VODVideo] {
@@ -207,9 +208,8 @@ struct VODLibraryView: View {
                             .onAppear {
                                 // 滚动到倒数第5个时触发加载更多
                                 // 注意：这里用 filteredVideos 判断，但实际加载的是 videos
-                                // 搜索时不应触发分页，只有显示全部时才分页
-                                if searchText.isEmpty,
-                                   let idx = filteredVideos.firstIndex(where: { $0.id == video.id }),
+                                // 搜索时也允许服务端分页加载更多
+                                if let idx = filteredVideos.firstIndex(where: { $0.id == video.id }),
                                    idx >= filteredVideos.count - 5 {
                                     loadMoreIfNeeded()
                                 }
@@ -265,24 +265,24 @@ struct VODLibraryView: View {
             hasMorePages = true
             loadVideos(page: 1)
         }
-        .onChange(of: searchText) { newValue in
-            // 搜索文本变化时实时筛选
-            filterVideos()
+        .onChange(of: searchText) { _ in
+            // 在线 VOD 搜索走服务端 wd=，不要只过滤当前已加载页。
+            searchDebounceTask?.cancel()
+            searchDebounceTask = Task {
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    reloadFromFirstPage()
+                }
+            }
         }
     }
     
     // MARK: - 搜索筛选
     
     private func filterVideos() {
-        if searchText.isEmpty {
-            filteredVideos = videos
-        } else {
-            filteredVideos = videos.filter { video in
-                video.name.localizedCaseInsensitiveContains(searchText) ||
-                (video.actors?.localizedCaseInsensitiveContains(searchText) ?? false) ||
-                (video.director?.localizedCaseInsensitiveContains(searchText) ?? false)
-            }
-        }
+        // 结果已由 VOD API 根据 wd= 返回；这里保持分页/搜索结果原样，避免“只能搜当前页”。
+        filteredVideos = videos
     }
     
     // MARK: - 数据加载
@@ -355,12 +355,14 @@ struct VODLibraryView: View {
             loadingTask?.cancel()
         }
         let requestedTypeID = selectedTypeID
+        let requestedKeyword = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         loadingTask = Task {
             do {
                 let service = VODService(db: db)
                 let result = try await service.fetchVideos(
                     from: source,
                     page: page,
+                    keyword: requestedKeyword.isEmpty ? nil : requestedKeyword,
                     typeID: requestedTypeID.map(String.init)
                 )
                 try Task.checkCancellation()

@@ -379,6 +379,7 @@ private struct AddMediaSourceWizardSheet: View {
             Picker("提供商", selection: $onlineMusicProvider) {
                 Text("网易云音乐").tag(OnlineMusicProvider.netease)
                 Text("GD Studio").tag(OnlineMusicProvider.gdstudio)
+                Text("Tabos").tag(OnlineMusicProvider.tabos)
                 Text("自定义 API").tag(OnlineMusicProvider.custom)
             }
             .pickerStyle(.segmented)
@@ -500,6 +501,8 @@ private struct AddMediaSourceWizardSheet: View {
             return "使用网易云音乐官方 API 进行搜索和播放。无需额外配置。"
         case .gdstudio:
             return "使用 GD Studio 音乐 API 作为网易云的备用源。"
+        case .tabos:
+            return "接入 ios.25pan.com 的 Tabos 聚合音乐 API，支持多平台搜索与音质参数。默认使用 320k 播放。"
         case .custom:
             return ""
         }
@@ -763,11 +766,11 @@ private struct AddMediaSourceWizardSheet: View {
         let config = OnlineSourceConfig(
             kind: sourceKind,
             provider: onlineMusicProvider.rawValue,
-            apiBase: onlineMusicProvider == .custom ? onlineMusicBaseURL : nil,
+            apiBase: onlineMusicProvider == .custom ? onlineMusicBaseURL : (onlineMusicProvider == .tabos ? "https://ios.25pan.com" : nil),
             subscriptionURL: nil,
             epgURL: nil,
             userAgent: nil,
-            quality: nil,
+            quality: onlineMusicProvider == .tabos ? "320k" : nil,
             needsParser: false
         )
         

@@ -38,6 +38,7 @@ public enum OnlineSourceKind: String, Codable, CaseIterable, Identifiable, Senda
     case vodTVBox = "vod_tvbox"
     case onlineMusicNetease = "online_music_netease"
     case onlineMusicGDStudio = "online_music_gdstudio"
+    case onlineMusicTabos = "online_music_tabos"
     case onlineMusicCustom = "online_music_custom"
     
     public var id: String { rawValue }
@@ -49,6 +50,7 @@ public enum OnlineSourceKind: String, Codable, CaseIterable, Identifiable, Senda
         case .vodTVBox: return "点播源 (TVBox)"
         case .onlineMusicNetease: return "网易云音乐"
         case .onlineMusicGDStudio: return "GD Studio 音乐"
+        case .onlineMusicTabos: return "Tabos 聚合音乐"
         case .onlineMusicCustom: return "自定义音乐源"
         }
     }

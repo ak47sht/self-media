@@ -9,14 +9,16 @@ public struct OnlineMusicTrack: Identifiable, Codable, Sendable {
     public let album: String?
     public let duration: TimeInterval
     public let coverURL: String?
+    public let provider: OnlineMusicProvider?
     
-    public init(id: String, name: String, artist: String, album: String?, duration: TimeInterval, coverURL: String?) {
+    public init(id: String, name: String, artist: String, album: String?, duration: TimeInterval, coverURL: String?, provider: OnlineMusicProvider? = nil) {
         self.id = id
         self.name = name
         self.artist = artist
         self.album = album
         self.duration = duration
         self.coverURL = coverURL
+        self.provider = provider
     }
     
     /// 显示用的艺术家名称
@@ -30,6 +32,8 @@ public struct OnlineMusicTrack: Identifiable, Codable, Sendable {
 public actor OnlineMusicService {
     private let session: URLSession
     private var customBaseURL: String = ""  // 自定义 API 的 base URL
+    private var tabosBaseURL: String = "https://ios.25pan.com"
+    private var preferredQuality: String = "320k"
     
     /// Song 类型别名（兼容现有 UI 代码）
     public typealias Song = OnlineMusicTrack
@@ -49,14 +53,26 @@ public actor OnlineMusicService {
     public func setCustomBaseURL(_ url: String) {
         self.customBaseURL = url
     }
+
+    public func setTabosBaseURL(_ url: String) {
+        self.tabosBaseURL = url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "https://ios.25pan.com" : url
+    }
+
+    public func setPreferredQuality(_ quality: String?) {
+        let trimmed = quality?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        self.preferredQuality = trimmed.isEmpty ? "320k" : trimmed
+    }
     
     // MARK: - 兼容旧 API 的方法
     
     /// 搜索音乐（兼容旧 API 签名）
-    public func search(query: String, neteaseAPI: String?, gdstudioAPI: String?) async throws -> SearchResult {
+    public func search(query: String, neteaseAPI: String?, gdstudioAPI: String?, tabosAPI: String? = nil) async throws -> SearchResult {
         // 优先使用 neteaseAPI，其次 gdstudioAPI，最后官方源
         let provider: OnlineMusicProvider
-        if let apiBase = neteaseAPI {
+        if let apiBase = tabosAPI {
+            setTabosBaseURL(apiBase)
+            provider = .tabos
+        } else if let apiBase = neteaseAPI {
             customBaseURL = apiBase
             provider = .custom
         } else if let apiBase = gdstudioAPI {
@@ -71,10 +87,26 @@ public actor OnlineMusicService {
     }
     
     /// 获取播放地址（兼容旧 API 签名）
-    public func playURL(song: Song, neteaseAPI: String?, gdstudioAPI: String?) async throws -> (url: String, lyric: String?) {
-        // 优先使用 neteaseAPI，其次 gdstudioAPI，最后官方源
+    public func playURL(song: Song, neteaseAPI: String?, gdstudioAPI: String?, tabosAPI: String? = nil, quality: String? = nil) async throws -> (url: String, lyric: String?) {
+        // 播放必须跟随歌曲自身来源，避免配置了 Tabos 后把网易/GD 的 song id 串到 Tabos 解析。
         let provider: OnlineMusicProvider
-        if let apiBase = neteaseAPI {
+        setPreferredQuality(quality)
+        if let songProvider = song.provider {
+            provider = songProvider
+            switch songProvider {
+            case .tabos:
+                setTabosBaseURL(tabosAPI ?? "https://ios.25pan.com")
+            case .custom:
+                customBaseURL = neteaseAPI ?? gdstudioAPI ?? customBaseURL
+            case .gdstudio:
+                customBaseURL = gdstudioAPI ?? customBaseURL
+            case .netease:
+                customBaseURL = neteaseAPI ?? customBaseURL
+            }
+        } else if song.id.contains(":"), let apiBase = tabosAPI {
+            setTabosBaseURL(apiBase)
+            provider = .tabos
+        } else if let apiBase = neteaseAPI {
             customBaseURL = apiBase
             provider = .custom
         } else if let apiBase = gdstudioAPI {
@@ -99,6 +131,8 @@ public actor OnlineMusicService {
             return try await searchNetease(query: query)
         case .gdstudio:
             return try await searchGDStudio(query: query)
+        case .tabos:
+            return try await searchTabos(query: query, apiBase: tabosBaseURL)
         case .custom:
             return try await searchCustom(query: query, apiBase: customBaseURL)
         }
@@ -113,6 +147,8 @@ public actor OnlineMusicService {
             return try await playURLNetease(songID: songID)
         case .gdstudio:
             return try await playURLGDStudio(songID: songID)
+        case .tabos:
+            return try await playURLTabos(songID: songID, apiBase: tabosBaseURL, quality: preferredQuality)
         case .custom:
             return try await playURLCustom(songID: songID, apiBase: customBaseURL)
         }
@@ -127,6 +163,8 @@ public actor OnlineMusicService {
             return try await lyricNetease(songID: songID)
         case .gdstudio:
             return try await lyricGDStudio(songID: songID)
+        case .tabos:
+            return try await lyricTabos(songID: songID, apiBase: tabosBaseURL)
         case .custom:
             return try await lyricCustom(songID: songID, apiBase: customBaseURL)
         }
@@ -170,7 +208,8 @@ public actor OnlineMusicService {
                 artist: artists,
                 album: album,
                 duration: duration,
-                coverURL: coverURL
+                coverURL: coverURL,
+                provider: .netease
             )
         }
     }
@@ -235,7 +274,7 @@ public actor OnlineMusicService {
         
         let data = try await loadData(for: request)
         
-        return try parseNeteaseSearchResponse(data: data)
+        return try parseNeteaseSearchResponse(data: data, provider: .gdstudio)
     }
     
     private func playURLGDStudio(songID: String) async throws -> URL {
@@ -283,7 +322,7 @@ public actor OnlineMusicService {
         
         let data = try await loadData(for: request)
         
-        return try parseNeteaseSearchResponse(data: data)
+        return try parseNeteaseSearchResponse(data: data, provider: .custom)
     }
     
     private func playURLCustom(songID: String, apiBase: String) async throws -> URL {
@@ -314,6 +353,68 @@ public actor OnlineMusicService {
         let data = try await loadData(for: request)
         
         return try parseNeteaseLyricResponse(data: data)
+    }
+
+    // MARK: - Tabos / 25pan 聚合音乐 API
+
+    private func tabosMusicBase(_ apiBase: String) -> String {
+        let trimmed = apiBase.trimmingCharacters(in: .whitespacesAndNewlines)
+        let base = (trimmed.isEmpty ? "https://ios.25pan.com" : trimmed)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        if base.hasSuffix("/api/music") { return base }
+        return "\(base)/api/music"
+    }
+
+    private func searchTabos(query: String, apiBase: String) async throws -> [OnlineMusicTrack] {
+        let encodedQuery = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
+        let urlString = "\(tabosMusicBase(apiBase))/search/songs?q=\(encodedQuery)&source=all&page=1&page_size=30"
+        guard let url = URL(string: urlString) else { throw OnlineMusicError.invalidURL }
+
+        var request = URLRequest(url: url)
+        request.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
+        request.setValue("https://ios.25pan.com/music", forHTTPHeaderField: "Referer")
+
+        let data = try await loadData(for: request)
+        return try parseTabosSearchResponse(data: data)
+    }
+
+    private func playURLTabos(songID: String, apiBase: String, quality: String) async throws -> URL {
+        let components = splitTabosSongID(songID)
+        let encodedSource = components.source.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? components.source
+        let encodedID = components.id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? components.id
+        let encodedQuality = quality.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? quality
+        let urlString = "\(tabosMusicBase(apiBase))/songs/url/\(encodedSource)/\(encodedID)?quality=\(encodedQuality)"
+        guard let url = URL(string: urlString) else { throw OnlineMusicError.invalidURL }
+
+        var request = URLRequest(url: url)
+        request.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
+        request.setValue("https://ios.25pan.com/music", forHTTPHeaderField: "Referer")
+
+        let data = try await loadData(for: request)
+        return try parseTabosPlayURLResponse(data: data)
+    }
+
+    private func lyricTabos(songID: String, apiBase: String) async throws -> String {
+        let components = splitTabosSongID(songID)
+        let encodedSource = components.source.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? components.source
+        let encodedID = components.id.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? components.id
+        let urlString = "\(tabosMusicBase(apiBase))/lyrics/discover?id=\(encodedID)&source=\(encodedSource)&need_word=false"
+        guard let url = URL(string: urlString) else { throw OnlineMusicError.invalidURL }
+
+        var request = URLRequest(url: url)
+        request.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
+        request.setValue("https://ios.25pan.com/music", forHTTPHeaderField: "Referer")
+
+        let data = try await loadData(for: request)
+        return try parseTabosLyricResponse(data: data)
+    }
+
+    private func splitTabosSongID(_ songID: String) -> (source: String, id: String) {
+        let parts = songID.split(separator: ":", maxSplits: 1).map(String.init)
+        if parts.count == 2, !parts[0].isEmpty, !parts[1].isEmpty {
+            return (parts[0], parts[1])
+        }
+        return ("kuwo", songID)
     }
     
     // MARK: - Network helpers
@@ -361,7 +462,7 @@ public actor OnlineMusicService {
 
     // MARK: - 响应解析辅助方法
     
-    private func parseNeteaseSearchResponse(data: Data) throws -> [OnlineMusicTrack] {
+    private func parseNeteaseSearchResponse(data: Data, provider: OnlineMusicProvider = .netease) throws -> [OnlineMusicTrack] {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let result = json["result"] as? [String: Any],
               let songs = result["songs"] as? [[String: Any]] else {
@@ -385,7 +486,8 @@ public actor OnlineMusicService {
                 artist: artists,
                 album: album,
                 duration: duration,
-                coverURL: coverURL
+                coverURL: coverURL,
+                provider: provider
             )
         }
     }
@@ -411,6 +513,74 @@ public actor OnlineMusicService {
         
         return lyric
     }
+
+    private func parseTabosSearchResponse(data: Data) throws -> [OnlineMusicTrack] {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let code = json["code"] as? Int,
+              code == 0,
+              let payload = json["data"] as? [String: Any] else {
+            throw OnlineMusicError.parseError
+        }
+        let songs = (payload["list"] as? [[String: Any]]) ?? (payload["songs"] as? [[String: Any]]) ?? []
+
+        return songs.compactMap { song in
+            let source = (song["source"] as? String) ?? (song["provider"] as? String) ?? "kuwo"
+            let rawID = String(describing: song["id"] ?? song["songId"] ?? song["song_id"] ?? "")
+            guard !rawID.isEmpty,
+                  let name = song["name"] as? String ?? song["title"] as? String else {
+                return nil
+            }
+
+            let artists: String
+            if let artistArray = song["artists"] as? [[String: Any]] {
+                artists = artistArray.compactMap { $0["name"] as? String }.joined(separator: ", ")
+            } else {
+                artists = song["artist"] as? String ?? "Unknown"
+            }
+            let albumInfo = song["album"] as? [String: Any]
+            let album = albumInfo?["name"] as? String ?? song["album"] as? String
+            let durationMs = song["durationMs"] as? Double ?? song["duration_ms"] as? Double ?? 0
+            let duration = durationMs > 0 ? durationMs / 1000.0 : (song["duration"] as? Double ?? 0)
+            let coverURL = song["cover"] as? String ?? albumInfo?["cover"] as? String
+
+            return OnlineMusicTrack(
+                id: "\(source):\(rawID)",
+                name: name,
+                artist: artists.isEmpty ? "Unknown" : artists,
+                album: album,
+                duration: duration,
+                coverURL: coverURL,
+                provider: .tabos
+            )
+        }
+    }
+
+    private func parseTabosPlayURLResponse(data: Data) throws -> URL {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let code = json["code"] as? Int,
+              code == 0,
+              let payload = json["data"] as? [String: Any],
+              let urlString = payload["url"] as? String,
+              let playURL = URL(string: urlString) else {
+            throw OnlineMusicError.noPlayURL
+        }
+        return playURL
+    }
+
+    private func parseTabosLyricResponse(data: Data) throws -> String {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let code = json["code"] as? Int,
+              code == 0 else {
+            return ""
+        }
+        if let payload = json["data"] as? [String: Any] {
+            return payload["lyric"] as? String
+                ?? payload["lyricText"] as? String
+                ?? payload["lrc"] as? String
+                ?? ""
+        }
+        return json["data"] as? String ?? ""
+    }
 }
 
 // MARK: - 在线音乐提供商
@@ -418,6 +588,7 @@ public actor OnlineMusicService {
 public enum OnlineMusicProvider: String, Codable, Sendable, Hashable, CaseIterable, Identifiable {
     case netease
     case gdstudio
+    case tabos
     case custom  // 自定义 API（URL 存在 OnlineSourceConfig.onlineMusicBaseURL）
     
     public var id: String { rawValue }
@@ -426,6 +597,7 @@ public enum OnlineMusicProvider: String, Codable, Sendable, Hashable, CaseIterab
         switch self {
         case .netease: return "网易云音乐"
         case .gdstudio: return "GD Studio"
+        case .tabos: return "Tabos / 25pan"
         case .custom: return "自定义"
         }
     }
@@ -435,6 +607,7 @@ public enum OnlineMusicProvider: String, Codable, Sendable, Hashable, CaseIterab
         switch self {
         case .netease: return .onlineMusicNetease
         case .gdstudio: return .onlineMusicGDStudio
+        case .tabos: return .onlineMusicTabos
         case .custom: return .onlineMusicCustom
         }
     }

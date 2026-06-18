@@ -25,6 +25,8 @@ enum EmbyServiceError: LocalizedError {
     /// 服务器疑似限制第三方客户端接入（白名单 / 451 / 自定义 HTML 错误页 / 含关键字）。
     /// 不应自动重试或反复重新登录，应提示用户联系管理员加入白名单。
     case clientRestricted(statusCode: Int?, reason: String?)
+    /// 服务器不是完整 Emby/Jellyfin API（例如 MoonTVPlus/OpenList 类网页影库或兼容层）。
+    case incompatibleServer(reason: String)
     case requestFailed(statusCode: Int)
 
     var errorDescription: String? {
@@ -33,6 +35,8 @@ enum EmbyServiceError: LocalizedError {
             return "Emby 登录已失效，需要重新认证。"
         case .clientRestricted:
             return "该远程服务器可能限制第三方客户端接入。请联系管理员将 MediaLIB 加入白名单。"
+        case .incompatibleServer(let reason):
+            return "该地址不像完整 Emby/Jellyfin API，无法按 Emby 源导入。\(reason)"
         case .requestFailed(let statusCode):
             return "Emby 请求失败（HTTP \(statusCode)），请检查服务器状态和网络连接。"
         }
@@ -145,7 +149,7 @@ struct EmbyService {
 
         let (data, response) = try await URLSession.shared.data(for: request)
         try validate(response: response, data: data)
-        let payload = try JSONDecoder().decode(EmbyLoginResponse.self, from: data)
+        let payload = try decodeEmbyResponse(EmbyLoginResponse.self, from: data, endpoint: "登录认证")
         return EmbySession(
             serverURL: baseURL,
             username: payload.User.Name ?? username,
@@ -206,7 +210,7 @@ struct EmbyService {
 
         let (data, response) = try await URLSession.shared.data(for: request)
         try validate(response: response, data: data)
-        let payload = try JSONDecoder().decode(EmbyItemsResponse.self, from: data)
+        let payload = try decodeEmbyResponse(EmbyItemsResponse.self, from: data, endpoint: "用户媒体库")
         return payload.Items
             .filter { $0.CollectionType?.isEmpty == false || $0.type.lowercased() == "collectionfolder" }
             .map { dto in
@@ -451,7 +455,7 @@ struct EmbyService {
 
         let (data, response) = try await URLSession.shared.data(for: request)
         try validate(response: response, data: data)
-        return try JSONDecoder().decode(EmbyItemsResponse.self, from: data)
+        return try decodeEmbyResponse(EmbyItemsResponse.self, from: data, endpoint: "媒体条目列表")
     }
 
     private func mediaItem(from dto: EmbyItemDTO, session: EmbySession, sourceID: String, sourcePath: String) -> MediaItem? {
@@ -635,7 +639,20 @@ struct EmbyService {
 
         let (data, response) = try await URLSession.shared.data(for: request)
         try validate(response: response, data: data)
-        return try JSONDecoder().decode(EmbyItemDTO.self, from: data)
+        return try decodeEmbyResponse(EmbyItemDTO.self, from: data, endpoint: "媒体详情")
+    }
+
+    private func decodeEmbyResponse<T: Decodable>(_ type: T.Type, from data: Data, endpoint: String) throws -> T {
+        do {
+            return try JSONDecoder().decode(type, from: data)
+        } catch {
+            let preview = String(data: data.prefix(512), encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let lower = preview.lowercased()
+            if lower.contains("<!doctype html") || lower.contains("<html") || lower.contains("moontv") || lower.contains("openlist") {
+                throw EmbyServiceError.incompatibleServer(reason: "\(endpoint) 返回了网页/兼容层内容；MoonTVPlus 通常不是完整 Emby 服务端，请改用 VOD/网页源或填写真实 Emby/Jellyfin 服务地址。")
+            }
+            throw EmbyServiceError.incompatibleServer(reason: "\(endpoint) 返回的 JSON 结构与 Emby API 不兼容：\(error.localizedDescription)")
+        }
     }
 
     private func sendAuthenticated(
