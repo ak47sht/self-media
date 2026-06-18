@@ -319,7 +319,7 @@ final class LibMpvClient {
     }
 
     func configureRemotePlaybackHeaders(for urlString: String, referer: String? = nil) {
-        guard URL(string: urlString)?.scheme?.lowercased().map({ ["http", "https"].contains($0) }) == true else { return }
+        guard Self.isHTTPURL(urlString) else { return }
         setString("user-agent", Self.browserUserAgent)
         if let referer = referer?.trimmingCharacters(in: .whitespacesAndNewlines),
            Self.isHTTPURL(referer) {
