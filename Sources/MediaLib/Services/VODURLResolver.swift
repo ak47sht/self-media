@@ -89,8 +89,13 @@ actor VODURLResolver {
         } else if value.hasPrefix("/"), let baseURL, let base = URL(string: baseURL) {
             value = URL(string: value, relativeTo: base)?.absoluteString ?? value
         }
-        guard URL(string: value)?.scheme?.lowercased().map({ ["http", "https"].contains($0) }) == true else { return nil }
+        guard isHTTPURL(value) else { return nil }
         return value
+    }
+
+    private static func isHTTPURL(_ value: String) -> Bool {
+        guard let scheme = URL(string: value)?.scheme?.lowercased() else { return false }
+        return scheme == "http" || scheme == "https"
     }
 
     /// 解析出源特定的第三方播放器 URL
