@@ -24,6 +24,10 @@ struct VODLibraryView: View {
     @State private var loadingTask: Task<Void, Never>?
     @State private var categoryTask: Task<Void, Never>?
     @State private var searchDebounceTask: Task<Void, Never>?
+    @State private var tvboxSites: [TVBoxVODSite] = []
+    @State private var selectedTVBoxSiteID: String?
+    @State private var isLoadingTVBoxSites = false
+    @State private var tvboxSiteError: String?
     
     // displayVideos 计算属性在 sheet 弹出时会触发布局死循环，暂时禁用本地搜索
     // private var displayVideos: [VODVideo] {
@@ -90,6 +94,34 @@ struct VODLibraryView: View {
                 .disabled(isRefreshingCategories)
                 .help("刷新分类列表")
                 
+                // TVBox 站点选择器
+                if isTVBoxAggregateSource {
+                    if isLoadingTVBoxSites {
+                        ProgressView()
+                            .scaleEffect(0.8)
+                    } else if !tvboxSites.isEmpty {
+                        Menu {
+                            ForEach(tvboxSites) { site in
+                                Button(site.name) {
+                                    switchTVBoxSite(site)
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: 6) {
+                                Text(selectedTVBoxSite?.name ?? "选择站点")
+                                    .font(.callout)
+                                Image(systemName: "chevron.down")
+                                    .font(.caption)
+                            }
+                            .foregroundStyle(.primary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(Color.black.opacity(0.2))
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                        }
+                    }
+                }
+
                 // 类型选择器
                 if !categories.isEmpty {
                     Menu {
@@ -241,19 +273,23 @@ struct VODLibraryView: View {
             }
         }
         .sheet(item: $selectedVideo) { video in
-            VODDetailView(video: video, source: source)
+            VODDetailView(video: video, source: activeSource)
                 .environmentObject(appState)
         }
         .navigationTitle(source.name)
         .onAppear {
-            if categories.isEmpty {
-                loadCategories()
-            }
-            if videos.isEmpty {
-                loadVideos(page: 1)
-            } else if filteredVideos.isEmpty {
-                // 如果 videos 有数据但 filteredVideos 为空（比如从其他页面返回），重新筛选
-                filterVideos()
+            if isTVBoxAggregateSource {
+                loadTVBoxSitesIfNeeded()
+            } else {
+                if categories.isEmpty {
+                    loadCategories()
+                }
+                if videos.isEmpty {
+                    loadVideos(page: 1)
+                } else if filteredVideos.isEmpty {
+                    // 如果 videos 有数据但 filteredVideos 为空（比如从其他页面返回），重新筛选
+                    filterVideos()
+                }
             }
         }
         .onChange(of: selectedTypeID) { newValue in
@@ -280,6 +316,43 @@ struct VODLibraryView: View {
     
     // MARK: - 搜索筛选
 
+    private var isTVBoxAggregateSource: Bool {
+        source.onlineConfig?.kind == .vodTVBoxAggregate
+    }
+
+    private var selectedTVBoxSite: TVBoxVODSite? {
+        guard isTVBoxAggregateSource else { return nil }
+        if let selectedTVBoxSiteID,
+           let site = tvboxSites.first(where: { $0.id == selectedTVBoxSiteID }) {
+            return site
+        }
+        return tvboxSites.first
+    }
+
+    private var activeSource: MediaSource {
+        guard let site = selectedTVBoxSite else { return source }
+        let config = OnlineSourceConfig(
+            kind: .vodTVBox,
+            provider: "tvbox-cms",
+            apiBase: site.api,
+            subscriptionURL: source.onlineConfig?.subscriptionURL,
+            epgURL: nil,
+            userAgent: nil,
+            quality: nil,
+            needsParser: false
+        )
+        return MediaSource(
+            id: "\(source.id)-\(site.id)",
+            name: site.name,
+            path: "vod://\(source.id)/\(site.id)",
+            mediaType: .other,
+            minimumFileSize: 0,
+            includeInMetadataFetch: false,
+            includeInHealthCheck: false,
+            onlineConfig: config
+        )
+    }
+
     private var effectiveTopCategories: [VODCategory] {
         let declaredTop = categories.filter { $0.parentID == 0 }
         if !declaredTop.isEmpty { return declaredTop }
@@ -293,17 +366,82 @@ struct VODLibraryView: View {
     }
     
     // MARK: - 数据加载
+
+    private func resetLoadedContent() {
+        categories = []
+        videos = []
+        filteredVideos = []
+        selectedTypeID = nil
+        currentPage = 1
+        hasMorePages = true
+        errorMessage = nil
+    }
+
+    private func switchTVBoxSite(_ site: TVBoxVODSite) {
+        guard selectedTVBoxSiteID != site.id else { return }
+        DebugLog.log("VODLibraryView", "TVBox 切换站点: \(site.name)")
+        selectedTVBoxSiteID = site.id
+        resetLoadedContent()
+        loadCategories()
+        loadVideos(page: 1)
+    }
+
+    private func loadTVBoxSitesIfNeeded() {
+        guard isTVBoxAggregateSource,
+              tvboxSites.isEmpty,
+              !isLoadingTVBoxSites else { return }
+        guard let subscriptionURL = source.onlineConfig?.subscriptionURL,
+              !subscriptionURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            tvboxSiteError = "TVBox 聚合源缺少订阅地址。"
+            errorMessage = tvboxSiteError
+            isLoading = false
+            return
+        }
+        isLoadingTVBoxSites = true
+        isLoading = true
+        Task {
+            do {
+                let preview = try await TVBoxSubscriptionService().fetchPreview(from: subscriptionURL)
+                try Task.checkCancellation()
+                await MainActor.run {
+                    self.tvboxSites = preview.vodSites
+                    self.selectedTVBoxSiteID = preview.vodSites.first?.id
+                    self.isLoadingTVBoxSites = false
+                    self.tvboxSiteError = preview.vodSites.isEmpty ? "TVBox 订阅里没有可直接播放的 CMS 点播站点。" : nil
+                    if preview.vodSites.isEmpty {
+                        self.isLoading = false
+                        self.errorMessage = self.tvboxSiteError
+                    } else {
+                        self.resetLoadedContent()
+                        self.loadCategories()
+                        self.loadVideos(page: 1)
+                    }
+                }
+            } catch is CancellationError {
+                return
+            } catch {
+                await MainActor.run {
+                    self.isLoadingTVBoxSites = false
+                    self.isLoading = false
+                    self.tvboxSiteError = error.localizedDescription
+                    self.errorMessage = error.localizedDescription
+                }
+            }
+        }
+    }
     
     private func refreshCategories() async {
+        guard !isTVBoxAggregateSource || selectedTVBoxSite != nil else { return }
         guard let db = appState.database else { return }
         
         await MainActor.run {
             isRefreshingCategories = true
         }
         
+        let requestedSource = activeSource
         do {
             let service = VODService(db: db)
-            let loaded = try await service.fetchCategories(from: source)
+            let loaded = try await service.fetchCategories(from: requestedSource)
             
             await MainActor.run {
                 self.categories = loaded
@@ -319,13 +457,15 @@ struct VODLibraryView: View {
     }
     
     private func loadCategories() {
+        guard !isTVBoxAggregateSource || selectedTVBoxSite != nil else { return }
         guard let db = appState.database else { return }
         
         categoryTask?.cancel()
+        let requestedSource = activeSource
         categoryTask = Task {
             do {
                 let service = VODService(db: db)
-                let loaded = try await service.fetchCategories(from: source)
+                let loaded = try await service.fetchCategories(from: requestedSource)
                 try Task.checkCancellation()
                 
                 await MainActor.run {
@@ -341,6 +481,7 @@ struct VODLibraryView: View {
     }
     
     private func loadVideos(page: Int) {
+        guard !isTVBoxAggregateSource || selectedTVBoxSite != nil else { return }
         guard let db = appState.database else { return }
         
         if page == 1 {
@@ -363,11 +504,12 @@ struct VODLibraryView: View {
         }
         let requestedTypeID = selectedTypeID
         let requestedKeyword = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let requestedSource = activeSource
         loadingTask = Task {
             do {
                 let service = VODService(db: db)
                 let result = try await service.fetchVideos(
-                    from: source,
+                    from: requestedSource,
                     page: page,
                     keyword: requestedKeyword.isEmpty ? nil : requestedKeyword,
                     typeID: requestedTypeID.map(String.init)

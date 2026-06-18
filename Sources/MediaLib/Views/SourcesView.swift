@@ -135,8 +135,6 @@ private struct AddMediaSourceWizardSheet: View {
     @State private var tvboxPreview: TVBoxSubscriptionPreview?
     @State private var tvboxPreviewError: String?
     @State private var isLoadingTVBoxPreview = false
-    @State private var tvboxVODImportLimit = 5
-    @State private var tvboxImportLiveSources = true
 
     private let columns = [GridItem(.adaptive(minimum: 188), spacing: 10)]
     private let mediaTypes: [MediaType] = [
@@ -507,7 +505,7 @@ private struct AddMediaSourceWizardSheet: View {
             if let preview = tvboxPreview {
                 tvboxPreviewPanel(preview)
             } else {
-                AppInfoNote(text: "TVBox 订阅会展开为现有 VOD/IPTV 源：type=1 的 CMS 站点导入为点播源，lives[].url 导入为 IPTV 源；默认只导入前 5 个点播源，避免侧栏和首屏请求过载；jar/spider 类站点会先跳过。", systemImage: "square.stack.3d.up")
+                AppInfoNote(text: "TVBox 订阅会保存为一个聚合源：侧栏只显示一个入口，打开后在页面内切换子站点；type=1 的 CMS 站点按需加载，lives 和 jar/spider 本轮只做提示不展开。", systemImage: "square.stack.3d.up")
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -532,21 +530,7 @@ private struct AddMediaSourceWizardSheet: View {
 
     private func tvboxPreviewPanel(_ preview: TVBoxSubscriptionPreview) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 10) {
-                Picker("点播导入", selection: $tvboxVODImportLimit) {
-                    Text("前 5 个").tag(5)
-                    Text("前 20 个").tag(20)
-                    Text("前 50 个").tag(50)
-                    Text("全部").tag(0)
-                }
-                .pickerStyle(.segmented)
-                .frame(maxWidth: 360)
-
-                Toggle("导入直播源", isOn: $tvboxImportLiveSources)
-                    .toggleStyle(.checkbox)
-            }
-
-            Text("将导入 \(tvboxSelectedVODSites.count) 个点播源" + (tvboxImportLiveSources ? "，以及 \(preview.liveSources.count) 个直播源。" : "。"))
+            Text("将保存为 1 个 TVBox 聚合源，打开后可在页面内切换 \(preview.vodSites.count) 个点播站点。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -764,7 +748,7 @@ private struct AddMediaSourceWizardSheet: View {
             case .vod:
                 return false
             case .tvbox:
-                return tvboxPreview == nil || (tvboxSelectedVODSites.isEmpty && !tvboxImportLiveSources)
+                return tvboxPreview == nil
             }
         }
     }
@@ -802,12 +786,6 @@ private struct AddMediaSourceWizardSheet: View {
                 }
             }
         }
-    }
-
-    private var tvboxSelectedVODSites: [TVBoxVODSite] {
-        guard let preview = tvboxPreview else { return [] }
-        guard tvboxVODImportLimit > 0 else { return preview.vodSites }
-        return Array(preview.vodSites.prefix(tvboxVODImportLimit))
     }
 
     private func loadTVBoxPreview() {
@@ -1030,40 +1008,10 @@ private struct AddMediaSourceWizardSheet: View {
     }
 
     private func importTVBoxSubscription() {
-        guard let preview = tvboxPreview else { return }
+        guard tvboxPreview != nil else { return }
         let namePrefix = tvboxName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "TVBox" : tvboxName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let vodSources = tvboxSelectedVODSites.map { site in
-            (
-                name: "\(namePrefix) · \(site.name)",
-                config: OnlineSourceConfig(
-                    kind: .vodTVBox,
-                    provider: "tvbox-cms",
-                    apiBase: site.api,
-                    subscriptionURL: preview.subscriptionURL,
-                    epgURL: nil,
-                    userAgent: nil,
-                    quality: nil,
-                    needsParser: false
-                )
-            )
-        }
-        let liveSources = tvboxImportLiveSources ? preview.liveSources.map { live in
-            (
-                name: "\(namePrefix) · \(live.name)",
-                config: OnlineSourceConfig(
-                    kind: .iptv,
-                    provider: "tvbox-live",
-                    apiBase: live.url,
-                    subscriptionURL: live.url,
-                    epgURL: nil,
-                    userAgent: nil,
-                    quality: nil,
-                    needsParser: true
-                )
-            )
-        } : []
         dismiss()
-        appState.addTVBoxImportedSources(vodSources: vodSources, iptvSources: liveSources)
+        appState.addTVBoxAggregateSource(name: namePrefix, subscriptionURL: tvboxSubscriptionURL)
     }
 
     private var credentialURL: URL? {

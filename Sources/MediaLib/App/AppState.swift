@@ -3345,18 +3345,35 @@ final class AppState: ObservableObject {
             try sourceRepository.save(source)
             reload()
 
-            // 异步拉取并缓存视频列表
-            Task {
-                await fetchVODVideos(for: source)
+            if config.kind != .vodTVBoxAggregate {
+                Task {
+                    await fetchVODVideos(for: source)
+                }
             }
 
             alert = AppAlert(
-                title: "VOD 源已添加",
-                message: "\"\(name)\" 正在拉取视频列表..."
+                title: config.kind == .vodTVBoxAggregate ? "TVBox 聚合源已添加" : "VOD 源已添加",
+                message: config.kind == .vodTVBoxAggregate ? "\"\(name)\" 已添加。打开后会按需加载订阅内站点。" : "\"\(name)\" 正在拉取视频列表..."
             )
         } catch {
             showError("添加 VOD 源失败", error)
         }
+    }
+
+    func addTVBoxAggregateSource(name: String, subscriptionURL: String) {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "TVBox" : name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedURL = subscriptionURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let config = OnlineSourceConfig(
+            kind: .vodTVBoxAggregate,
+            provider: "tvbox-aggregate",
+            apiBase: nil,
+            subscriptionURL: trimmedURL,
+            epgURL: nil,
+            userAgent: nil,
+            quality: nil,
+            needsParser: true
+        )
+        addVODSource(name: trimmedName, config: config)
     }
 
     func addTVBoxImportedSources(vodSources: [(name: String, config: OnlineSourceConfig)], iptvSources: [(name: String, config: OnlineSourceConfig)]) {
