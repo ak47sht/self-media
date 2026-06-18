@@ -360,6 +360,7 @@ struct MusicLibraryView: View {
     @State private var searchRefreshTask: Task<Void, Never>?
     @State private var lyricsRefreshTask: Task<Void, Never>?
     @State private var showingOnlineSearch = false
+    @State private var showingPlaylistQuickPanel = false
     @State private var onlineSearchMode: OnlineMusicSheetMode = .search
     @State private var onlineSearchResults: [OnlineMusicService.Song] = []
 
@@ -491,6 +492,29 @@ struct MusicLibraryView: View {
                     },
                     onCancel: {
                         playlistRenameRequest = nil
+                    }
+                )
+                .environmentObject(appState)
+            }
+            .sheet(isPresented: $showingPlaylistQuickPanel) {
+                MusicPlaylistQuickPanel(
+                    playlists: displayPlaylists,
+                    tracksForPlaylist: { tracks(for: $0) },
+                    onOpen: { playlist in
+                        drilldown = .playlist(playlist, tracks(for: playlist))
+                        showingPlaylistQuickPanel = false
+                    },
+                    onPlay: { playlist in
+                        appState.replaceMusicQueueAndPlay(tracks(for: playlist))
+                        showingPlaylistQuickPanel = false
+                    },
+                    onCreatePlaylist: {
+                        showingPlaylistQuickPanel = false
+                        presentPlaylistCreation(tracks: [], suggestedName: "新歌单")
+                    },
+                    onCreateSmartPlaylist: {
+                        showingPlaylistQuickPanel = false
+                        onCreateSmartPlaylist()
                     }
                 )
                 .environmentObject(appState)
@@ -666,6 +690,21 @@ struct MusicLibraryView: View {
     private var pageHeader: some View {
         PageHeader(title: section.title, subtitle: subtitle, systemImage: section.systemImage) {
             GlassSearchField(placeholder: "搜索音乐", text: $searchText, minWidth: 158, maxWidth: 226)
+
+            Button {
+                playAllVisibleMusic()
+            } label: {
+                Label("全部播放", systemImage: "play.fill")
+            }
+            .disabled(visiblePlayableTracks.isEmpty)
+            .buttonStyle(LiquidGlassButtonStyle(cornerRadius: 13, horizontalPadding: 12, minHeight: 34, prominent: true))
+
+            Button {
+                showingPlaylistQuickPanel = true
+            } label: {
+                Label("歌单", systemImage: "music.note.list")
+            }
+
             if section == .playlists {
                 Button {
                     onCreateSmartPlaylist()
@@ -688,7 +727,7 @@ struct MusicLibraryView: View {
                     onlineSearchMode = .recommendations
                     showingOnlineSearch = true
                 } label: {
-                    Label("在线推荐", systemImage: "sparkles")
+                    Label("推荐歌单", systemImage: "sparkles")
                 }
                 .disabled(appState.sources.filter { $0.sourceKind == .onlineMusic }.isEmpty)
 
@@ -754,6 +793,26 @@ struct MusicLibraryView: View {
 
     private var playbackTraceTracks: [MediaItem] {
         displayedTrackRows.map(\.track).filter(\.hasPlaybackTrace)
+    }
+
+    private var visiblePlayableTracks: [MediaItem] {
+        if let drilldown {
+            return drilldown.tracks
+        }
+        switch section {
+        case .songs, .recent, .favorites, .unmatched:
+            return displayedTrackRows.map(\.track)
+        case .albums:
+            return displayedAlbumGroups.flatMap(\.tracks)
+        case .artists:
+            return displayedArtistGroups.flatMap(\.tracks)
+        case .playlists:
+            return filteredPlaylists.flatMap { tracks(for: $0) }
+        }
+    }
+
+    private func playAllVisibleMusic() {
+        appState.replaceMusicQueueAndPlay(visiblePlayableTracks)
     }
 
     private var showsPlaybackHistoryAction: Bool {
@@ -1168,6 +1227,101 @@ struct MusicLibraryView: View {
 
     private func rowModels(from tracks: [MediaItem]) -> [MusicTrackRowModel] {
         MusicLibrarySnapshotBuilder.rowModels(from: tracks)
+    }
+}
+
+private struct MusicPlaylistQuickPanel: View {
+    @Environment(\.dismiss) private var dismiss
+    let playlists: [MusicPlaylist]
+    let tracksForPlaylist: (MusicPlaylist) -> [MediaItem]
+    let onOpen: (MusicPlaylist) -> Void
+    let onPlay: (MusicPlaylist) -> Void
+    let onCreatePlaylist: () -> Void
+    let onCreateSmartPlaylist: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            AppSheetHeader(
+                title: "歌单",
+                subtitle: "快速打开、全部播放或新建歌单。",
+                systemImage: "music.note.list"
+            )
+
+            HStack(spacing: 10) {
+                Button {
+                    onCreatePlaylist()
+                } label: {
+                    Label("新建歌单", systemImage: "plus")
+                }
+                .buttonStyle(LiquidGlassButtonStyle(cornerRadius: 12, horizontalPadding: 12, minHeight: 32, prominent: true))
+
+                Button {
+                    onCreateSmartPlaylist()
+                } label: {
+                    Label("智能歌单", systemImage: "sparkles")
+                }
+                .buttonStyle(LiquidGlassButtonStyle(cornerRadius: 12, horizontalPadding: 12, minHeight: 32))
+
+                Spacer()
+
+                Button("关闭") {
+                    dismiss()
+                }
+                .buttonStyle(LiquidGlassButtonStyle(cornerRadius: 12, horizontalPadding: 12, minHeight: 32))
+            }
+
+            if playlists.isEmpty {
+                EmptyStateView(title: "暂无歌单", systemImage: "music.note.list", message: "可以先新建歌单，或把在线音乐收藏到「在线音乐」歌单。")
+                    .frame(minHeight: 220)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 10) {
+                        ForEach(playlists) { playlist in
+                            let tracks = tracksForPlaylist(playlist)
+                            HStack(spacing: 12) {
+                                Image(systemName: MusicFavoritePlaylist.isFavorite(playlist) ? "heart.fill" : "music.note.list")
+                                    .font(.title3.weight(.semibold))
+                                    .foregroundStyle(AppColors.selectedGlassTint)
+                                    .frame(width: 34, height: 34)
+                                    .background(Color.primary.opacity(0.06))
+                                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(playlist.name)
+                                        .font(.callout.weight(.semibold))
+                                        .lineLimit(1)
+                                    Text("\(tracks.count) 首歌曲")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+
+                                Spacer(minLength: 12)
+
+                                Button {
+                                    onPlay(playlist)
+                                } label: {
+                                    Label("播放", systemImage: "play.fill")
+                                }
+                                .disabled(tracks.isEmpty)
+                                .buttonStyle(LiquidGlassButtonStyle(cornerRadius: 11, horizontalPadding: 10, minHeight: 30, prominent: true))
+
+                                Button {
+                                    onOpen(playlist)
+                                } label: {
+                                    Label("打开", systemImage: "chevron.right")
+                                }
+                                .buttonStyle(LiquidGlassButtonStyle(cornerRadius: 11, horizontalPadding: 10, minHeight: 30))
+                            }
+                            .padding(12)
+                            .staticSurfaceBackground(cornerRadius: 16, thickness: 0.9)
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+                .frame(minHeight: 260, maxHeight: 430)
+            }
+        }
+        .appSheetChrome(width: AppSheetMetrics.wideWidth, maxHeight: 620)
     }
 }
 
