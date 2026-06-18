@@ -3359,6 +3359,57 @@ final class AppState: ObservableObject {
         }
     }
 
+    func addTVBoxImportedSources(vodSources: [(name: String, config: OnlineSourceConfig)], iptvSources: [(name: String, config: OnlineSourceConfig)]) {
+        guard let sourceRepository else { return }
+        var savedVODSources: [MediaSource] = []
+        var savedIPTVSources: [MediaSource] = []
+        do {
+            for entry in vodSources {
+                let source = MediaSource(
+                    name: entry.name,
+                    path: "vod://\(entry.name.replacingOccurrences(of: " ", with: "_"))_\(UUID().uuidString)",
+                    mediaType: .other,
+                    minimumFileSize: 0,
+                    includeInMetadataFetch: false,
+                    preferMetadataWriteToSource: false,
+                    includeInHealthCheck: false,
+                    onlineConfig: entry.config
+                )
+                try sourceRepository.save(source)
+                savedVODSources.append(source)
+            }
+            for entry in iptvSources {
+                let source = MediaSource(
+                    name: entry.name,
+                    path: "iptv://\(entry.name.replacingOccurrences(of: " ", with: "_"))_\(UUID().uuidString)",
+                    mediaType: .other,
+                    minimumFileSize: 0,
+                    includeInMetadataFetch: false,
+                    preferMetadataWriteToSource: false,
+                    includeInHealthCheck: false,
+                    onlineConfig: entry.config
+                )
+                try sourceRepository.save(source)
+                savedIPTVSources.append(source)
+            }
+            reload()
+            Task {
+                for source in savedVODSources.prefix(5) {
+                    await fetchVODVideos(for: source)
+                }
+                for source in savedIPTVSources {
+                    await fetchIPTVChannels(for: source)
+                }
+            }
+            alert = AppAlert(
+                title: "TVBox 订阅已导入",
+                message: "已添加 \(savedVODSources.count) 个点播源和 \(savedIPTVSources.count) 个直播源。为避免卡顿，仅预热前 5 个点播源，其他源会在打开时加载。"
+            )
+        } catch {
+            showError("导入 TVBox 订阅失败", error)
+        }
+    }
+
     private func fetchVODVideos(for source: MediaSource) async {
         guard let db = database else { return }
         let service = VODService(db: db)

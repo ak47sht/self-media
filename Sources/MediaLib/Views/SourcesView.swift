@@ -126,6 +126,15 @@ private struct AddMediaSourceWizardSheet: View {
     @State private var vodName = ""
     @State private var vodAPIURL = ""
 
+    // TVBox subscription fields
+    @State private var tvboxName = "TVBox"
+    @State private var tvboxSubscriptionURL = ""
+    @State private var tvboxPreview: TVBoxSubscriptionPreview?
+    @State private var tvboxPreviewError: String?
+    @State private var isLoadingTVBoxPreview = false
+    @State private var tvboxVODImportLimit = 20
+    @State private var tvboxImportLiveSources = true
+
     private let columns = [GridItem(.adaptive(minimum: 188), spacing: 10)]
     private let mediaTypes: [MediaType] = [
         .auto, .movie, .tvShow, .anime, .documentary, .variety, .homeVideo, .music, .other, .privateCollection
@@ -235,6 +244,8 @@ private struct AddMediaSourceWizardSheet: View {
                 iptvConfiguration
             case .vod:
                 vodConfiguration
+            case .tvbox:
+                tvboxConfiguration
             }
         case .settings:
             wizardSettings
@@ -437,6 +448,92 @@ private struct AddMediaSourceWizardSheet: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    private var tvboxConfiguration: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            sectionTitle("订阅名称")
+            TextField("TVBox", text: $tvboxName)
+                .glassFormField()
+
+            sectionTitle("TVBox 订阅地址")
+            TextField("https://example.com/api/tvbox/subscribe?...", text: $tvboxSubscriptionURL)
+                .glassFormField()
+
+            HStack(spacing: 10) {
+                Button {
+                    loadTVBoxPreview()
+                } label: {
+                    Label(isLoadingTVBoxPreview ? "读取中" : "预览订阅", systemImage: "eye")
+                }
+                .buttonStyle(LiquidGlassButtonStyle(cornerRadius: 10, horizontalPadding: 12, minHeight: 32, prominent: true))
+                .disabled(tvboxSubscriptionURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isLoadingTVBoxPreview)
+
+                if let preview = tvboxPreview {
+                    Text("点播 \(preview.vodSites.count) · 直播 \(preview.liveSources.count) · 不支持 \(preview.unsupportedSiteCount)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if let tvboxPreviewError {
+                AppInfoNote(text: tvboxPreviewError, systemImage: "exclamationmark.triangle")
+            }
+
+            if let preview = tvboxPreview {
+                tvboxPreviewPanel(preview)
+            } else {
+                AppInfoNote(text: "TVBox 订阅会展开为现有 VOD/IPTV 源：type=1 的 CMS 站点导入为点播源，lives[].url 导入为 IPTV 源；jar/spider 类站点会先跳过。", systemImage: "square.stack.3d.up")
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func tvboxPreviewPanel(_ preview: TVBoxSubscriptionPreview) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                Picker("点播导入", selection: $tvboxVODImportLimit) {
+                    Text("前 20 个").tag(20)
+                    Text("前 50 个").tag(50)
+                    Text("全部").tag(0)
+                }
+                .pickerStyle(.segmented)
+                .frame(maxWidth: 360)
+
+                Toggle("导入直播源", isOn: $tvboxImportLiveSources)
+                    .toggleStyle(.checkbox)
+            }
+
+            Text("将导入 \(tvboxSelectedVODSites.count) 个点播源" + (tvboxImportLiveSources ? "，以及 \(preview.liveSources.count) 个直播源。" : "。"))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(Array(preview.vodSites.prefix(6))) { site in
+                    HStack(spacing: 8) {
+                        Image(systemName: "film")
+                            .foregroundStyle(.secondary)
+                        Text(site.name)
+                            .font(.caption)
+                        Spacer()
+                        Text(site.searchable ? "可搜索" : "仅列表")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                if preview.vodSites.count > 6 {
+                    Text("… 还有 \(preview.vodSites.count - 6) 个点播源")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(10)
+            .staticSurfaceBackground(cornerRadius: 12, thickness: 0.7)
+
+            if let spider = preview.spiderURL {
+                AppInfoNote(text: "检测到 spider/jar：\(spider)。这类站点本轮不会导入，避免把不可播放源塞进侧栏。", systemImage: "ladybug")
+            }
+        }
+    }
+
     private var wizardSettings: some View {
         VStack(alignment: .leading, spacing: 14) {
             SourceBehaviorSettingsPanel(
@@ -532,6 +629,8 @@ private struct AddMediaSourceWizardSheet: View {
                 return "添加 IPTV 源"
             case .vod:
                 return "添加 VOD 源"
+            case .tvbox:
+                return "导入 TVBox 源"
             }
         }
     }
@@ -556,6 +655,8 @@ private struct AddMediaSourceWizardSheet: View {
                 return "tv"
             case .vod:
                 return "film"
+            case .tvbox:
+                return "square.stack.3d.up"
             }
         }
     }
@@ -597,6 +698,8 @@ private struct AddMediaSourceWizardSheet: View {
                 let nameValid = !vodName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 let urlValid = !vodAPIURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 return !nameValid || !urlValid
+            case .tvbox:
+                return tvboxSubscriptionURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isLoadingTVBoxPreview || tvboxPreview == nil
             }
         case .settings:
             switch selectedKind {
@@ -616,6 +719,8 @@ private struct AddMediaSourceWizardSheet: View {
                 return false
             case .vod:
                 return false
+            case .tvbox:
+                return tvboxPreview == nil || (tvboxSelectedVODSites.isEmpty && !tvboxImportLiveSources)
             }
         }
     }
@@ -628,6 +733,35 @@ private struct AddMediaSourceWizardSheet: View {
             return .source
         case .settings:
             return .configure
+        }
+    }
+
+    private var tvboxSelectedVODSites: [TVBoxVODSite] {
+        guard let preview = tvboxPreview else { return [] }
+        guard tvboxVODImportLimit > 0 else { return preview.vodSites }
+        return Array(preview.vodSites.prefix(tvboxVODImportLimit))
+    }
+
+    private func loadTVBoxPreview() {
+        let url = tvboxSubscriptionURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !url.isEmpty else { return }
+        isLoadingTVBoxPreview = true
+        tvboxPreviewError = nil
+        tvboxPreview = nil
+        Task {
+            do {
+                let preview = try await TVBoxSubscriptionService().fetchPreview(from: url)
+                await MainActor.run {
+                    self.tvboxPreview = preview
+                    self.tvboxPreviewError = nil
+                    self.isLoadingTVBoxPreview = false
+                }
+            } catch {
+                await MainActor.run {
+                    self.tvboxPreviewError = error.localizedDescription
+                    self.isLoadingTVBoxPreview = false
+                }
+            }
         }
     }
 
@@ -676,6 +810,8 @@ private struct AddMediaSourceWizardSheet: View {
             addIPTVSource()
         case .vod:
             addVODSource()
+        case .tvbox:
+            importTVBoxSubscription()
         }
     }
 
@@ -825,6 +961,43 @@ private struct AddMediaSourceWizardSheet: View {
         )
     }
 
+    private func importTVBoxSubscription() {
+        guard let preview = tvboxPreview else { return }
+        let namePrefix = tvboxName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "TVBox" : tvboxName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let vodSources = tvboxSelectedVODSites.map { site in
+            (
+                name: "\(namePrefix) · \(site.name)",
+                config: OnlineSourceConfig(
+                    kind: .vodTVBox,
+                    provider: "tvbox-cms",
+                    apiBase: site.api,
+                    subscriptionURL: preview.subscriptionURL,
+                    epgURL: nil,
+                    userAgent: nil,
+                    quality: nil,
+                    needsParser: false
+                )
+            )
+        }
+        let liveSources = tvboxImportLiveSources ? preview.liveSources.map { live in
+            (
+                name: "\(namePrefix) · \(live.name)",
+                config: OnlineSourceConfig(
+                    kind: .iptv,
+                    provider: "tvbox-live",
+                    apiBase: live.url,
+                    subscriptionURL: live.url,
+                    epgURL: nil,
+                    userAgent: nil,
+                    quality: nil,
+                    needsParser: true
+                )
+            )
+        } : []
+        dismiss()
+        appState.addTVBoxImportedSources(vodSources: vodSources, iptvSources: liveSources)
+    }
+
     private var credentialURL: URL? {
         guard var components = URLComponents(string: networkURL.trimmingCharacters(in: .whitespacesAndNewlines)),
               let scheme = components.scheme?.lowercased(),
@@ -862,6 +1035,7 @@ private enum AddMediaSourceKind: String, CaseIterable, Identifiable {
     case onlineMusic
     case iptv
     case vod
+    case tvbox
 
     var id: String { rawValue }
 
@@ -869,7 +1043,7 @@ private enum AddMediaSourceKind: String, CaseIterable, Identifiable {
         switch self {
         case .emby, .jellyfin, .plex:
             return true
-        case .local, .network, .onlineMusic, .iptv, .vod:
+        case .local, .network, .onlineMusic, .iptv, .vod, .tvbox:
             return false
         }
     }
@@ -892,6 +1066,8 @@ private enum AddMediaSourceKind: String, CaseIterable, Identifiable {
             return "IPTV 直播"
         case .vod:
             return "视频点播"
+        case .tvbox:
+            return "TVBox 订阅"
         }
     }
 
@@ -913,6 +1089,8 @@ private enum AddMediaSourceKind: String, CaseIterable, Identifiable {
             return "M3U/M3U8 订阅源，支持多线路切换"
         case .vod:
             return "CMS 视频点播源（苹果CMS/飞飞CMS）"
+        case .tvbox:
+            return "订阅后预览并批量导入点播/直播源"
         }
     }
 
@@ -934,6 +1112,8 @@ private enum AddMediaSourceKind: String, CaseIterable, Identifiable {
             return "填写 M3U/M3U8 订阅地址以导入频道列表。"
         case .vod:
             return "填写 CMS API 地址以导入视频库。"
+        case .tvbox:
+            return "粘贴订阅地址，先预览可导入的点播/直播源。"
         }
     }
 
@@ -955,6 +1135,8 @@ private enum AddMediaSourceKind: String, CaseIterable, Identifiable {
             return "tv"
         case .vod:
             return "film"
+        case .tvbox:
+            return "square.stack.3d.up"
         }
     }
 }

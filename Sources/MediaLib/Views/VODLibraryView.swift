@@ -43,7 +43,7 @@ struct VODLibraryView: View {
     
     var body: some View {
         // 预计算分类相关数据，避免 body 内重复计算触发布局死循环
-        let topCategories = categories.filter { $0.parentID == 0 }
+        let topCategories = effectiveTopCategories
         let selectedCategoryName: String = {
             guard let id = selectedTypeID,
                   let category = categories.first(where: { $0.id == id }) else {
@@ -279,6 +279,13 @@ struct VODLibraryView: View {
     }
     
     // MARK: - 搜索筛选
+
+    private var effectiveTopCategories: [VODCategory] {
+        let declaredTop = categories.filter { $0.parentID == 0 }
+        if !declaredTop.isEmpty { return declaredTop }
+        let knownIDs = Set(categories.map(\.id))
+        return categories.filter { !knownIDs.contains($0.parentID) }
+    }
     
     private func filterVideos() {
         // 结果已由 VOD API 根据 wd= 返回；这里保持分页/搜索结果原样，避免“只能搜当前页”。
