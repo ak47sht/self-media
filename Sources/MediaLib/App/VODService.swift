@@ -70,23 +70,10 @@ public class VODService {
         }
 
         // 构建 URL
-        var urlComponents = URLComponents(string: baseURL)
-        var queryItems: [URLQueryItem] = [
+        guard let url = cmsURL(baseURL, adding: [
             URLQueryItem(name: "ac", value: "detail"),
             URLQueryItem(name: "pg", value: String(page))
-        ]
-
-        if let keyword = keyword {
-            queryItems.append(URLQueryItem(name: "wd", value: keyword))
-        }
-
-        if let typeID = typeID {
-            queryItems.append(URLQueryItem(name: "t", value: typeID))
-        }
-
-        urlComponents?.queryItems = queryItems
-
-        guard let url = urlComponents?.url else {
+        ] + (keyword.map { [URLQueryItem(name: "wd", value: $0)] } ?? []) + (typeID.map { [URLQueryItem(name: "t", value: $0)] } ?? [])) else {
             throw VODServiceError.invalidURL
         }
 
@@ -150,13 +137,10 @@ public class VODService {
         }
 
         // 构建 URL (ac=list 返回分类列表)
-        var urlComponents = URLComponents(string: baseURL)
-        urlComponents?.queryItems = [
+        guard let url = cmsURL(baseURL, adding: [
             URLQueryItem(name: "ac", value: "list"),
             URLQueryItem(name: "pg", value: "1")
-        ]
-
-        guard let url = urlComponents?.url else {
+        ]) else {
             throw VODServiceError.invalidURL
         }
 
@@ -186,6 +170,14 @@ public class VODService {
 
         DebugLog.log("VODService", "获取到 \(categories.count) 个分类")
         return categories
+    }
+
+    private func cmsURL(_ baseURL: String, adding newItems: [URLQueryItem]) -> URL? {
+        guard var components = URLComponents(string: baseURL) else { return nil }
+        let replacingNames = Set(newItems.map(\.name))
+        let preservedItems = (components.queryItems ?? []).filter { !replacingNames.contains($0.name) }
+        components.queryItems = preservedItems + newItems
+        return components.url
     }
 
     private func validateHTTPResponse(_ response: URLResponse) throws {

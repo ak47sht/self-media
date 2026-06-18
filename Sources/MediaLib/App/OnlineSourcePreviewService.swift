@@ -49,12 +49,7 @@ actor OnlineSourcePreviewService {
     }
 
     private func requestCMSJSON(apiBase: String, queryItems: [URLQueryItem]) async throws -> [String: Any] {
-        guard var components = URLComponents(string: apiBase.trimmingCharacters(in: .whitespacesAndNewlines)) else {
-            throw OnlineSourcePreviewError.invalidURL
-        }
-        let existing = components.queryItems ?? []
-        components.queryItems = existing + queryItems
-        guard let url = components.url else { throw OnlineSourcePreviewError.invalidURL }
+        guard let url = cmsURL(apiBase, adding: queryItems) else { throw OnlineSourcePreviewError.invalidURL }
         var request = URLRequest(url: url)
         request.setValue("MediaLIB/1.0", forHTTPHeaderField: "User-Agent")
         let (data, response) = try await session.data(for: request)
@@ -65,6 +60,14 @@ actor OnlineSourcePreviewService {
             throw OnlineSourcePreviewError.invalidJSON
         }
         return json
+    }
+
+    private func cmsURL(_ baseURL: String, adding newItems: [URLQueryItem]) -> URL? {
+        guard var components = URLComponents(string: baseURL.trimmingCharacters(in: .whitespacesAndNewlines)) else { return nil }
+        let replacingNames = Set(newItems.map(\.name))
+        let preservedItems = (components.queryItems ?? []).filter { !replacingNames.contains($0.name) }
+        components.queryItems = preservedItems + newItems
+        return components.url
     }
 
     private func intValue(_ value: Any?) -> Int? {

@@ -135,7 +135,7 @@ private struct AddMediaSourceWizardSheet: View {
     @State private var tvboxPreview: TVBoxSubscriptionPreview?
     @State private var tvboxPreviewError: String?
     @State private var isLoadingTVBoxPreview = false
-    @State private var tvboxVODImportLimit = 20
+    @State private var tvboxVODImportLimit = 5
     @State private var tvboxImportLiveSources = true
 
     private let columns = [GridItem(.adaptive(minimum: 188), spacing: 10)]
@@ -507,7 +507,7 @@ private struct AddMediaSourceWizardSheet: View {
             if let preview = tvboxPreview {
                 tvboxPreviewPanel(preview)
             } else {
-                AppInfoNote(text: "TVBox 订阅会展开为现有 VOD/IPTV 源：type=1 的 CMS 站点导入为点播源，lives[].url 导入为 IPTV 源；jar/spider 类站点会先跳过。", systemImage: "square.stack.3d.up")
+                AppInfoNote(text: "TVBox 订阅会展开为现有 VOD/IPTV 源：type=1 的 CMS 站点导入为点播源，lives[].url 导入为 IPTV 源；默认只导入前 5 个点播源，避免侧栏和首屏请求过载；jar/spider 类站点会先跳过。", systemImage: "square.stack.3d.up")
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -534,6 +534,7 @@ private struct AddMediaSourceWizardSheet: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
                 Picker("点播导入", selection: $tvboxVODImportLimit) {
+                    Text("前 5 个").tag(5)
                     Text("前 20 个").tag(20)
                     Text("前 50 个").tag(50)
                     Text("全部").tag(0)
