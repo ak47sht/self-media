@@ -216,7 +216,7 @@ private class WebViewCoordinator: NSObject, WKNavigationDelegate {
             function isPlayableUrl(value) {
                 if (typeof value !== 'string' || value.length === 0) { return false; }
                 if (value.indexOf('blob:') === 0) { return false; }
-                return /\.(m3u8|mp4|webm|mov|flv)(\?|$)/i.test(value);
+                return /\\.(m3u8|mp4|webm|mov|flv)(\\?|$)/i.test(value);
             }
 
             var videoEl = document.querySelector('video');
