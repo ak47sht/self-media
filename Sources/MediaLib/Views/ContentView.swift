@@ -372,7 +372,6 @@ struct ContentView: View {
     }
 
     var body: some View {
-        let _ = print("[ContentView.body] 重算 \(Date().timeIntervalSince1970)")
         sheetDecorations(decoratedContent)
     }
 
@@ -704,32 +703,26 @@ struct ContentView: View {
     }
 
     private var navigationRoot: some View {
-        let _ = print("[navigationRoot] 开始重算 selection=\(String(describing: selection)) \(Date().timeIntervalSince1970)")
         // 预计算所有 detailView 需要的 appState 查找，避免在 detailView 内触发布局死循环
         let vodSource: MediaSource? = {
             if case .vod(let sourceID) = selection {
-                print("[navigationRoot] 查找 vodSource for \(sourceID)")
                 return appState.sources.first(where: { $0.id == sourceID })
             }
             return nil
         }()
         let iptvSource: MediaSource? = {
             if case .iptv(let sourceID) = selection {
-                print("[navigationRoot] 查找 iptvSource for \(sourceID)")
                 return appState.sources.first(where: { $0.id == sourceID })
             }
             return nil
         }()
-        let _ = print("[navigationRoot] 读取 canDisplayPrivateItems")
         let canDisplayPrivateItems = appState.canDisplayPrivateItems
         let musicSmartPlaylist: MusicSmartPlaylist? = {
             if case .musicSmartPlaylist(let playlistID) = selection {
-                print("[navigationRoot] 查找 musicSmartPlaylist for \(playlistID)")
                 return appState.musicSmartPlaylist(id: playlistID)
             }
             return nil
         }()
-        let _ = print("[navigationRoot] 预计算完成，构建 NavigationSplitView")
         
         return NavigationSplitView(columnVisibility: $columnVisibility) {
             List(selection: $selection) {
@@ -869,13 +862,10 @@ struct ContentView: View {
                 appState.selectedItemReturnAnchorID = nil
             }
         } detail: {
-            let _ = print("[NavigationSplitView detail] 开始渲染 detail，selection=\(String(describing: selection)) \(Date().timeIntervalSince1970)")
             ZStack {
                 if let startupError = appState.startupError {
-                    let _ = print("[NavigationSplitView detail] 分支: startupError")
                     StartupErrorView(message: startupError)
                 } else if let selectedItem = appState.selectedItem {
-                    let _ = print("[NavigationSplitView detail] 分支: selectedItem \(selectedItem.title)")
                     let destination = selection ?? .home
                     DetailView(
                         item: selectedItem,
@@ -883,7 +873,6 @@ struct ContentView: View {
                         sourceSystemImage: destination.systemImage
                     )
                 } else {
-                    let _ = print("[NavigationSplitView detail] 分支: detailView")
                     detailView(for: selection ?? .home, vodSource: vodSource, iptvSource: iptvSource, canDisplayPrivateItems: canDisplayPrivateItems, musicSmartPlaylist: musicSmartPlaylist)
                 }
             }
@@ -1418,7 +1407,6 @@ struct ContentView: View {
 
     @ViewBuilder
     private func detailView(for destination: SidebarDestination, vodSource: MediaSource?, iptvSource: MediaSource?, canDisplayPrivateItems: Bool, musicSmartPlaylist: MusicSmartPlaylist?) -> some View {
-        let _ = print("[detailView] destination=\(destination) \(Date().timeIntervalSince1970)")
         switch destination {
         case .home:
             HomeView(
@@ -1452,13 +1440,10 @@ struct ContentView: View {
         case .embySection, .embyLibrary, .smartCollection, .manualCollection:
             LibraryView(destination: destination)
         case .vod(let sourceID):
-            let _ = print("[detailView] .vod sourceID=\(sourceID), 使用预计算 source")
             if let source = vodSource {
-                let _ = print("[detailView] .vod 找到 source: \(source.name), 创建 VODLibraryView")
                 VODLibraryView(source: source)
                     .environmentObject(appState)
             } else {
-                let _ = print("[detailView] .vod 未找到 source")
                 EmptyStateView(title: "资源不存在", systemImage: "play.rectangle.on.rectangle", message: "该视频点播资源可能已被删除。")
             }
         case .iptv(let sourceID):

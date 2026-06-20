@@ -51,6 +51,9 @@ jobs:
           # mpv formula provides libmpv.*.dylib under the brew prefix
           ls -l "$(brew --prefix)/lib/" | grep -i mpv || true
 
+      - name: Run MediaLibChecks (deterministic assertion gate)
+        run: swift run MediaLibChecks
+
       - name: Build + package DMG
         shell: bash
         run: |

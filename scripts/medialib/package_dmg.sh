@@ -288,11 +288,16 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
       </array>
     </dict>
   </array>
-  <!-- 允许在线音乐/视频源使用 HTTP 明文连接（网易云等 CDN 返回的播放地址为 HTTP） -->
-  <!-- 临时完全禁用 ATS 以调试播放问题 -->
+  <!-- ATS: NSAllowsArbitraryLoads 是长期必要配置，非临时措施 -->
+  <!-- 原因：(1) 用户自建 Emby/Jellyfin/Plex 服务器多为 HTTP 局域网地址，不可预知域名 -->
+  <!--       (2) VOD CMS（MacCMS/量子等）返回的 m3u8 CDN 链接常为 HTTP，域名动态变化 -->
+  <!--       (3) 网易云等音乐 CDN 返回的播放地址为 HTTP -->
+  <!-- 若改用 NSExceptionDomains 白名单，每次增减源站都需改 Info.plist 并重签，不可行 -->
   <key>NSAppTransportSecurity</key>
   <dict>
     <key>NSAllowsArbitraryLoads</key>
+    <true/>
+    <key>NSAllowsLocalNetworking</key>
     <true/>
   </dict>
 </dict>
