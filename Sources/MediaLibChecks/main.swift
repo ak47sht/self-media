@@ -61,7 +61,7 @@ check(parsedLines.count == 2, "VOD play lines should split by $$$ when vod_play_
 check(parsedLines[0].name == "liangzi", "First VOD play line should keep declared source name")
 check(parsedLines[1].name == "lzm3u8", "Second VOD play line should keep declared source name")
 check(parsedLines[0].episodes.first?.name == "第01集", "Episode name should stay intact")
-check(parsedLines[1].episodes.first?.url.hasSuffix("index.m3u8"), "Playable m3u8 URL should stay intact")
+check(parsedLines[1].episodes.first?.url.hasSuffix("index.m3u8") == true, "Playable m3u8 URL should stay intact")
 
 check(!AppSettings().videoMouseWheelVolumeEnabled, "Video mouse wheel volume should be opt-in")
 check(AppSettings().videoHardwareDecodingMode == .safe, "Video hardware decoding should default to the compatible mode")

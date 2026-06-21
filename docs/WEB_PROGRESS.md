@@ -78,9 +78,9 @@ gantt
 ## Verification Commands
 
 ```bash
-cd /opt/agent-ops-dashboard && python3 test_dashboard_features.py
-cd /opt/movie-lite && python3 test_iptv.py && python3 test_search_rank.py
-cd /opt/music-lite && python3 test_music_lite.py
+cd $DASHBOARD_DIR && python3 test_dashboard_features.py
+cd $MOVIE_LITE_DIR && python3 test_iptv.py && python3 test_search_rank.py
+cd $MUSIC_LITE_DIR && python3 test_music_lite.py
 systemctl restart agent-ops-dashboard.service movie-lite.service music-lite.service
-cd /opt/visual-smoke-runner && node visual-smoke.js && node media-playback-qa.js > /opt/agent-ops-dashboard/visual-smoke/media-playback-qa-report.json
+cd $VISUAL_SMOKE_DIR && node visual-smoke.js && node media-playback-qa.js > $VISUAL_SMOKE_DIR/visual-smoke/media-playback-qa-report.json
 ```
