@@ -1318,6 +1318,18 @@ final class AppState: ObservableObject {
             throw DatabaseUnavailableError()
         }
         try mediaRepository.upsert(item)
+
+        // Keep in-memory caches in sync so SwiftUI views see the new item immediately.
+        // Without this, musicTracks(in:) returns nil for the newly upserted item
+        // because cachedMusicTracksByID is only rebuilt on full reload (app start / rescan).
+        if item.type == .music {
+            cachedMusicTracksByID[item.id] = item
+            if !cachedMusicTracks.contains(where: { $0.id == item.id }) {
+                cachedMusicTracks.append(item)
+            } else if let idx = cachedMusicTracks.firstIndex(where: { $0.id == item.id }) {
+                cachedMusicTracks[idx] = item
+            }
+        }
     }
 
     // MARK: - 歌单 M3U 导入 / 导出
@@ -6409,10 +6421,17 @@ final class AppState: ObservableObject {
 
         // 专辑/歌单/电台播放走的是 presentBuiltInPlayer 直连，不经过 playPreparedItem，
         // 因此这里需要补记首曲的播放次数并启动 Last.fm 打卡——否则整组的第一首永远不计数、不打卡。
-        incrementMusicPlayCount(startItem)
+        // 注意：在线音乐走 play() → playPreparedItem()，后者会自行计数，此处需跳过以免重复。
+        if !startItem.isOnlineMusic {
+            incrementMusicPlayCount(startItem)
+        }
 
         if settings.musicDefaultPlayer == .external {
             openExternally(startItem)
+        } else if startItem.isOnlineMusic {
+            // 在线音乐必须先解析流 URL（prepareOnlineMusicForPlayback），
+            // 否则 item.filePath 为 nil，PlayerView 会直接报"文件路径为空"。
+            play(startItem)
         } else {
             presentBuiltInPlayer(startItem)
         }
