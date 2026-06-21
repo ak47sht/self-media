@@ -1458,13 +1458,27 @@ final class AppState: ObservableObject {
 
     @discardableResult
     private func deleteOnlineMusicItems(_ tracks: [MediaItem]) -> Int {
-        let onlineTracks = uniqueMusicTracks(tracks).filter(\.isOnlineMusic)
+        var seen = Set<String>()
+        let onlineTracks = tracks.filter { track in
+            track.type == .music && track.isOnlineMusic && seen.insert(track.id).inserted
+        }
         let itemIDs = Set(onlineTracks.map(\.id))
         guard !itemIDs.isEmpty else { return 0 }
 
-        // 1. 从所有包含这些曲目的歌单中移出
-        for playlist in musicPlaylists where playlist.itemIDs.contains(where: itemIDs.contains) {
-            removeMusicTracks(onlineTracks, from: playlist)
+        // 1. 从所有包含这些曲目的歌单中移出。不要走 uniqueMusicTracks()，在线音乐 filePath 为 nil。
+        if let musicPlaylistRepository {
+            for playlist in musicPlaylists where playlist.itemIDs.contains(where: itemIDs.contains) {
+                do {
+                    if let updated = try musicPlaylistRepository.remove(
+                        itemIDs: Array(itemIDs),
+                        fromPlaylistID: playlist.id
+                    ) {
+                        upsertMusicPlaylistInMemory(updated)
+                    }
+                } catch {
+                    showError("移出歌单失败", error)
+                }
+            }
         }
 
         // 2. 从数据库删除
