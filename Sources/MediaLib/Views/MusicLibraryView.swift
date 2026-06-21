@@ -2076,13 +2076,6 @@ private struct MusicSongRow: View {
                     Label("从歌单移出", systemImage: "minus.circle")
                 }
             }
-            if row.track.isOnlineMusic, let onlinePlaylist = appState.musicPlaylists.first(where: { $0.name == "在线音乐" }), onlinePlaylist.itemIDs.contains(row.track.id) {
-                Button(role: .destructive) {
-                    appState.removeMusicTracks([row.track], from: onlinePlaylist)
-                } label: {
-                    Label("从在线音乐歌单移出", systemImage: "minus.circle.fill")
-                }
-            }
             if row.track.isOnlineMusic {
                 Button(role: .destructive) {
                     appState.deleteOnlineMusicItem(row.track)
