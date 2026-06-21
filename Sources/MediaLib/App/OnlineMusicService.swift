@@ -41,9 +41,13 @@ public actor OnlineMusicService {
         cache.countLimit = 50
         return cache
     }()
-    private struct CachedSearchResult: Sendable {
+    private final class CachedSearchResult: NSObject {
         let songs: [OnlineMusicTrack]
         let timestamp: Date
+        init(songs: [OnlineMusicTrack], timestamp: Date) {
+            self.songs = songs
+            self.timestamp = timestamp
+        }
     }
     
     /// Song 类型别名（兼容现有 UI 代码）
@@ -137,7 +141,11 @@ public actor OnlineMusicService {
     
     /// 搜索音乐（支持多源 fallback，带 30 分钟缓存）
     public func search(query: String, provider: OnlineMusicProvider) async throws -> [OnlineMusicTrack] {
-        let cacheKey = "\(provider.rawValue):\(query.lowercased().trimmingCharacters(in: .whitespaces))" as NSString
+        // Include base URL in cache key for .tabos/.custom (different endpoints may return different results)
+        var cacheKeyStr = "\(provider.rawValue):\(query.lowercased().trimmingCharacters(in: .whitespaces))"
+        if provider == .tabos { cacheKeyStr += ":\(tabosBaseURL)" }
+        if provider == .custom { cacheKeyStr += ":\(customBaseURL)" }
+        let cacheKey = cacheKeyStr as NSString
         
         // Check cache first (30-minute TTL)
         if let cached = searchCache.object(forKey: cacheKey),

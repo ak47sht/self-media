@@ -31,7 +31,7 @@ struct TVBoxLiveSource: Identifiable, Hashable, Sendable {
 actor TVBoxSubscriptionService {
     private let session: URLSession
     
-    // In-memory preview cache (10-minute TTL)
+    // In-memory preview cache (10-minute TTL, auto-evicts expired on write)
     private struct CachedPreview: Sendable {
         let preview: TVBoxSubscriptionPreview
         let timestamp: Date
@@ -81,8 +81,9 @@ actor TVBoxSubscriptionService {
             spiderURL: spider?.isEmpty == false ? spider : nil
         )
         
-        // Store in cache
+        // Store in cache, evict expired entries
         previewCache[trimmed] = CachedPreview(preview: preview, timestamp: Date())
+        previewCache = previewCache.filter { Date().timeIntervalSince($0.value.timestamp) < 600 }
         
         return preview
     }
