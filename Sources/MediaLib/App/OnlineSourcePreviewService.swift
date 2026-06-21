@@ -50,6 +50,9 @@ actor OnlineSourcePreviewService {
 
     private func requestCMSJSON(apiBase: String, queryItems: [URLQueryItem]) async throws -> [String: Any] {
         guard let url = cmsURL(apiBase, adding: queryItems) else { throw OnlineSourcePreviewError.invalidURL }
+        guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
+            throw OnlineSourcePreviewError.unsupportedScheme
+        }
         var request = URLRequest(url: url)
         request.setValue("MediaLIB/1.0", forHTTPHeaderField: "User-Agent")
         let (data, response) = try await session.data(for: request)
@@ -79,6 +82,7 @@ actor OnlineSourcePreviewService {
 
 enum OnlineSourcePreviewError: LocalizedError {
     case invalidURL
+    case unsupportedScheme
     case invalidJSON
     case httpStatus(Int)
 
@@ -86,6 +90,8 @@ enum OnlineSourcePreviewError: LocalizedError {
         switch self {
         case .invalidURL:
             return "源地址无效。"
+        case .unsupportedScheme:
+            return "源地址仅支持 http/https 协议。"
         case .invalidJSON:
             return "源返回的不是可识别 JSON。"
         case .httpStatus(let status):

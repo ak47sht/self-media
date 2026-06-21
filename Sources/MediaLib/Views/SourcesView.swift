@@ -128,6 +128,7 @@ private struct AddMediaSourceWizardSheet: View {
     @State private var vodPreview: OnlineSourcePreview?
     @State private var vodPreviewError: String?
     @State private var isLoadingVODPreview = false
+    @State private var vodPreviewTask: Task<Void, Never>?
 
     // TVBox subscription fields
     @State private var tvboxName = "TVBox"
@@ -135,6 +136,7 @@ private struct AddMediaSourceWizardSheet: View {
     @State private var tvboxPreview: TVBoxSubscriptionPreview?
     @State private var tvboxPreviewError: String?
     @State private var isLoadingTVBoxPreview = false
+    @State private var tvboxPreviewTask: Task<Void, Never>?
 
     private let columns = [GridItem(.adaptive(minimum: 188), spacing: 10)]
     private let mediaTypes: [MediaType] = [
@@ -770,7 +772,8 @@ private struct AddMediaSourceWizardSheet: View {
         isLoadingVODPreview = true
         vodPreview = nil
         vodPreviewError = nil
-        Task {
+        vodPreviewTask?.cancel()
+        vodPreviewTask = Task {
             do {
                 let preview = try await OnlineSourcePreviewService().previewVOD(apiBase: url)
                 await MainActor.run {
@@ -794,7 +797,8 @@ private struct AddMediaSourceWizardSheet: View {
         isLoadingTVBoxPreview = true
         tvboxPreviewError = nil
         tvboxPreview = nil
-        Task {
+        tvboxPreviewTask?.cancel()
+        tvboxPreviewTask = Task {
             do {
                 let preview = try await TVBoxSubscriptionService().fetchPreview(from: url)
                 await MainActor.run {
@@ -989,6 +993,15 @@ private struct AddMediaSourceWizardSheet: View {
         DebugLog.log("SourcesView", "添加 VOD 源: \(vodName)")
         DebugLog.log("SourcesView", "  API URL: \(vodAPIURL)")
         
+        // Validate that the currently-entered URL has an allowed scheme
+        let trimmedURL = vodAPIURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let url = URL(string: trimmedURL) {
+            guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
+                appState.alert = AppAlert(title: "地址协议不支持", message: "VOD 源地址仅支持 http/https 协议，不支持 \"\(url.scheme ?? "")\" 协议。")
+                return
+            }
+        }
+
         let config = OnlineSourceConfig(
             kind: .vodJSONAPI,
             provider: "cms",
@@ -1009,6 +1022,14 @@ private struct AddMediaSourceWizardSheet: View {
 
     private func importTVBoxSubscription() {
         guard tvboxPreview != nil else { return }
+        // Validate that the currently-entered URL has an allowed scheme
+        let trimmedURL = tvboxSubscriptionURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let url = URL(string: trimmedURL) {
+            guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
+                appState.alert = AppAlert(title: "地址协议不支持", message: "TVBox 订阅地址仅支持 http/https 协议，不支持 \"\(url.scheme ?? "")\" 协议。")
+                return
+            }
+        }
         let namePrefix = tvboxName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "TVBox" : tvboxName.trimmingCharacters(in: .whitespacesAndNewlines)
         dismiss()
         appState.addTVBoxAggregateSource(name: namePrefix, subscriptionURL: tvboxSubscriptionURL)

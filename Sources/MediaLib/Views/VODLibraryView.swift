@@ -28,6 +28,7 @@ struct VODLibraryView: View {
     @State private var selectedTVBoxSiteID: String?
     @State private var isLoadingTVBoxSites = false
     @State private var tvboxSiteError: String?
+    @State private var loadTVBoxTask: Task<Void, Never>?
     
     // displayVideos 计算属性在 sheet 弹出时会触发布局死循环，暂时禁用本地搜索
     // private var displayVideos: [VODVideo] {
@@ -399,7 +400,8 @@ struct VODLibraryView: View {
         }
         isLoadingTVBoxSites = true
         isLoading = true
-        Task {
+        loadTVBoxTask?.cancel()
+        loadTVBoxTask = Task {
             do {
                 let preview = try await TVBoxSubscriptionService().fetchPreview(from: subscriptionURL)
                 try Task.checkCancellation()

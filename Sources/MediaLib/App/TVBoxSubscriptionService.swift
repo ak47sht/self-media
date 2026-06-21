@@ -41,6 +41,9 @@ actor TVBoxSubscriptionService {
     func fetchPreview(from subscriptionURL: String) async throws -> TVBoxSubscriptionPreview {
         let trimmed = subscriptionURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let url = URL(string: trimmed) else { throw TVBoxSubscriptionError.invalidURL }
+        guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
+            throw TVBoxSubscriptionError.unsupportedScheme
+        }
         var request = URLRequest(url: url)
         request.setValue("MediaLIB/1.0", forHTTPHeaderField: "User-Agent")
         let (data, response) = try await session.data(for: request)
@@ -100,6 +103,7 @@ actor TVBoxSubscriptionService {
 
 enum TVBoxSubscriptionError: LocalizedError {
     case invalidURL
+    case unsupportedScheme
     case invalidJSON
     case httpStatus(Int)
 
@@ -107,6 +111,8 @@ enum TVBoxSubscriptionError: LocalizedError {
         switch self {
         case .invalidURL:
             return "TVBox 订阅地址无效。"
+        case .unsupportedScheme:
+            return "TVBox 订阅地址仅支持 http/https 协议。"
         case .invalidJSON:
             return "TVBox 订阅返回的不是可识别 JSON。"
         case .httpStatus(let status):
