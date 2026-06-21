@@ -787,7 +787,7 @@ public final class DatabaseManager {
 
     private func migrateToVersion19() throws {
         // Add online_config column for online sources (IPTV / VOD / OnlineMusic)
-        try execute("ALTER TABLE media_sources ADD COLUMN online_config TEXT")
+        try addColumnIfMissing(table: "media_sources", column: "online_config", definition: "online_config TEXT")
         
         // IPTV channels cache table
         try execute("""
