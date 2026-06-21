@@ -25,7 +25,7 @@ struct VODLibraryView: View {
     @State private var categoryTask: Task<Void, Never>?
     @State private var searchDebounceTask: Task<Void, Never>?
     @State private var tvboxSites: [TVBoxVODSite] = []
-    @AppStorage("vodlib_selected_tvbox_site") private var selectedTVBoxSiteID: String?
+    @State private var selectedTVBoxSiteID: String?
     @State private var isLoadingTVBoxSites = false
     @State private var tvboxSiteError: String?
     @State private var loadTVBoxTask: Task<Void, Never>?
@@ -318,8 +318,11 @@ struct VODLibraryView: View {
             }
         }
         .onChange(of: selectedTVBoxSiteID) { newValue in
+            let key = "vodlib_selected_tvbox_site_\(source.id)"
             if let newValue {
-                UserDefaults.standard.set(newValue, forKey: "vodlib_selected_tvbox_site_\(source.id)")
+                UserDefaults.standard.set(newValue, forKey: key)
+            } else {
+                UserDefaults.standard.removeObject(forKey: key)
             }
         }
     }
@@ -391,7 +394,6 @@ struct VODLibraryView: View {
         guard selectedTVBoxSiteID != site.id else { return }
         DebugLog.log("VODLibraryView", "TVBox 切换站点: \(site.name)")
         selectedTVBoxSiteID = site.id
-        UserDefaults.standard.set(site.id, forKey: "vodlib_selected_tvbox_site_\(source.id)")
         resetLoadedContent()
         loadCategories()
         loadVideos(page: 1)

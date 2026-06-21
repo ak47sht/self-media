@@ -35,8 +35,12 @@ public actor OnlineMusicService {
     private var tabosBaseURL: String = "https://ios.25pan.com"
     private var preferredQuality: String = "320k"
     
-    // Search result cache (30-minute TTL)
-    private let searchCache = NSCache<NSString, CachedSearchResult>()
+    // Search result cache (30-minute TTL, max 50 entries)
+    private let searchCache: NSCache<NSString, CachedSearchResult> = {
+        let cache = NSCache<NSString, CachedSearchResult>()
+        cache.countLimit = 50
+        return cache
+    }()
     private struct CachedSearchResult: Sendable {
         let songs: [OnlineMusicTrack]
         let timestamp: Date
