@@ -30,6 +30,13 @@ struct TVBoxLiveSource: Identifiable, Hashable, Sendable {
 
 actor TVBoxSubscriptionService {
     private let session: URLSession
+    
+    // In-memory preview cache (10-minute TTL)
+    private struct CachedPreview: Sendable {
+        let preview: TVBoxSubscriptionPreview
+        let timestamp: Date
+    }
+    private var previewCache: [String: CachedPreview] = [:]
 
     init() {
         let configuration = URLSessionConfiguration.ephemeral
@@ -40,6 +47,13 @@ actor TVBoxSubscriptionService {
 
     func fetchPreview(from subscriptionURL: String) async throws -> TVBoxSubscriptionPreview {
         let trimmed = subscriptionURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // Check cache first (10-minute TTL)
+        if let cached = previewCache[trimmed],
+           Date().timeIntervalSince(cached.timestamp) < 600 {
+            return cached.preview
+        }
+        
         guard let url = URL(string: trimmed) else { throw TVBoxSubscriptionError.invalidURL }
         guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
             throw TVBoxSubscriptionError.unsupportedScheme
@@ -59,13 +73,18 @@ actor TVBoxSubscriptionService {
         let unsupportedCount = sites.count - vodSites.count
         let lives = ((root["lives"] as? [[String: Any]]) ?? []).compactMap(Self.parseLiveSource)
         let spider = root["spider"] as? String
-        return TVBoxSubscriptionPreview(
+        let preview = TVBoxSubscriptionPreview(
             subscriptionURL: trimmed,
             vodSites: vodSites,
             liveSources: lives,
             unsupportedSiteCount: max(unsupportedCount, 0),
             spiderURL: spider?.isEmpty == false ? spider : nil
         )
+        
+        // Store in cache
+        previewCache[trimmed] = CachedPreview(preview: preview, timestamp: Date())
+        
+        return preview
     }
 
     private static func parseSupportedVODSite(_ site: [String: Any]) -> TVBoxVODSite? {

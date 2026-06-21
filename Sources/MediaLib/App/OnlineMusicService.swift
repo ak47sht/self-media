@@ -35,6 +35,13 @@ public actor OnlineMusicService {
     private var tabosBaseURL: String = "https://ios.25pan.com"
     private var preferredQuality: String = "320k"
     
+    // Search result cache (30-minute TTL)
+    private let searchCache = NSCache<NSString, CachedSearchResult>()
+    private struct CachedSearchResult: Sendable {
+        let songs: [OnlineMusicTrack]
+        let timestamp: Date
+    }
+    
     /// Song 类型别名（兼容现有 UI 代码）
     public typealias Song = OnlineMusicTrack
     
@@ -124,18 +131,31 @@ public actor OnlineMusicService {
     
     // MARK: - 搜索
     
-    /// 搜索音乐（支持多源 fallback）
+    /// 搜索音乐（支持多源 fallback，带 30 分钟缓存）
     public func search(query: String, provider: OnlineMusicProvider) async throws -> [OnlineMusicTrack] {
+        let cacheKey = "\(provider.rawValue):\(query.lowercased().trimmingCharacters(in: .whitespaces))" as NSString
+        
+        // Check cache first (30-minute TTL)
+        if let cached = searchCache.object(forKey: cacheKey),
+           Date().timeIntervalSince(cached.timestamp) < 1800 {
+            return cached.songs
+        }
+        
+        let results: [OnlineMusicTrack]
         switch provider {
         case .netease:
-            return try await searchNetease(query: query)
+            results = try await searchNetease(query: query)
         case .gdstudio:
-            return try await searchGDStudio(query: query)
+            results = try await searchGDStudio(query: query)
         case .tabos:
-            return try await searchTabos(query: query, apiBase: tabosBaseURL)
+            results = try await searchTabos(query: query, apiBase: tabosBaseURL)
         case .custom:
-            return try await searchCustom(query: query, apiBase: customBaseURL)
+            results = try await searchCustom(query: query, apiBase: customBaseURL)
         }
+        
+        // Store in cache
+        searchCache.setObject(CachedSearchResult(songs: results, timestamp: Date()), forKey: cacheKey)
+        return results
     }
     
     // MARK: - 播放地址

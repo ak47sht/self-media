@@ -10,6 +10,8 @@ struct VODDetailView: View {
 
     @State private var selectedRouteIndex: Int?
     @State private var episodePage = 0  // 剧集分页，每页 50 集
+    @State private var routeCapabilities: [String] = []  // Precomputed capability labels
+    @State private var fallbackMap: [Int: (routeIndex: Int, routeName: String)] = [:]  // Precomputed fallback mappings
 
     private let episodesPerPage = 50
 
@@ -133,7 +135,7 @@ struct VODDetailView: View {
                                     route: route.name,
                                     isSelected: selectedRouteIndex == index,
                                     episodeCount: route.episodes.count,
-                                    capabilityLabel: routeCapabilityLabel(route)
+                                    capabilityLabel: index < routeCapabilities.count ? routeCapabilities[index] : ""
                                 ) {
                                     selectedRouteIndex = index
                                 }
@@ -203,11 +205,19 @@ struct VODDetailView: View {
                                     EpisodeButton(
                                         title: episode.name,
                                         index: actualIndex + 1,
-                                        fallbackTitle: fallbackRouteTitle(forEpisodeIndex: actualIndex, currentRouteIndex: selectedIndex, routes: routes)
+                                        fallbackTitle: fallbackMap[actualIndex]?.routeName
                                     ) {
                                         playVideo(episode: episode, route: selectedRoute.name)
                                     } onPlayFallback: {
-                                        playBestFallback(forEpisodeIndex: actualIndex, currentRouteIndex: selectedIndex, routes: routes)
+                                        if let fallback = fallbackMap[actualIndex] {
+                                            selectedRouteIndex = fallback.routeIndex
+                                            if fallback.routeIndex < routes.count {
+                                                let fallbackRoute = routes[fallback.routeIndex]
+                                                if actualIndex < fallbackRoute.episodes.count {
+                                                    playVideo(episode: fallbackRoute.episodes[actualIndex], route: fallbackRoute.name)
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -249,11 +259,42 @@ struct VODDetailView: View {
                 selectedRouteIndex = preferredInitialRouteIndex(in: routes)
                 DebugLog.log("VODDetailView", "  自动选择线路: \(selectedRouteIndex ?? 0)")
             }
+            // Build initial fallback map for the selected route
+            if let idx = selectedRouteIndex, idx < routes.count {
+                var newMap: [Int: (routeIndex: Int, routeName: String)] = [:]
+                let currentRoute = routes[idx]
+                for episodeIdx in 0..<currentRoute.episodes.count {
+                    if let candidate = bestFallbackEpisode(forEpisodeIndex: episodeIdx, currentRouteIndex: idx, routes: routes) {
+                        newMap[episodeIdx] = (candidate.routeIndex, candidate.route.name)
+                    }
+                }
+                fallbackMap = newMap
+            }
+            // Precompute route capability labels once
+            routeCapabilities = routes.map { route in
+                if route.episodes.contains(where: { VODURLResolver.isDirectStreamURL($0.url) }) {
+                    return "直连优先"
+                }
+                if route.episodes.contains(where: { $0.url.lowercased().hasPrefix("http") }) {
+                    return "网页解析"
+                }
+                return "需检查"
+            }
         }
         .onChange(of: selectedRouteIndex) { newIdx in
             if let newIdx = newIdx, newIdx < routes.count {
                 let route = routes[newIdx]
                 DebugLog.log("VODDetailView", "切换线路: \(route.name) (共 \(route.episodes.count) 集)")
+                
+                // Rebuild fallback map for current route
+                var newMap: [Int: (routeIndex: Int, routeName: String)] = [:]
+                let currentRoute = routes[newIdx]
+                for episodeIdx in 0..<currentRoute.episodes.count {
+                    if let candidate = bestFallbackEpisode(forEpisodeIndex: episodeIdx, currentRouteIndex: newIdx, routes: routes) {
+                        newMap[episodeIdx] = (candidate.routeIndex, candidate.route.name)
+                    }
+                }
+                fallbackMap = newMap
             }
             episodePage = 0
         }
@@ -273,27 +314,6 @@ struct VODDetailView: View {
                 VODURLResolver.isDirectStreamURL(episode.url)
             }
         } ?? 0
-    }
-
-    private func routeCapabilityLabel(_ route: VODPlayLine) -> String {
-        if route.episodes.contains(where: { VODURLResolver.isDirectStreamURL($0.url) }) {
-            return "直连优先"
-        }
-        if route.episodes.contains(where: { $0.url.lowercased().hasPrefix("http") }) {
-            return "网页解析"
-        }
-        return "需检查"
-    }
-
-    private func fallbackRouteTitle(forEpisodeIndex episodeIndex: Int, currentRouteIndex: Int, routes: [VODPlayLine]) -> String? {
-        guard let candidate = bestFallbackEpisode(forEpisodeIndex: episodeIndex, currentRouteIndex: currentRouteIndex, routes: routes) else { return nil }
-        return candidate.route.name
-    }
-
-    private func playBestFallback(forEpisodeIndex episodeIndex: Int, currentRouteIndex: Int, routes: [VODPlayLine]) {
-        guard let candidate = bestFallbackEpisode(forEpisodeIndex: episodeIndex, currentRouteIndex: currentRouteIndex, routes: routes) else { return }
-        selectedRouteIndex = candidate.routeIndex
-        playVideo(episode: candidate.episode, route: candidate.route.name)
     }
 
     private func bestFallbackEpisode(forEpisodeIndex episodeIndex: Int, currentRouteIndex: Int, routes: [VODPlayLine]) -> (routeIndex: Int, route: VODPlayLine, episode: VODEpisode)? {

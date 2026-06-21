@@ -25,7 +25,7 @@ struct VODLibraryView: View {
     @State private var categoryTask: Task<Void, Never>?
     @State private var searchDebounceTask: Task<Void, Never>?
     @State private var tvboxSites: [TVBoxVODSite] = []
-    @State private var selectedTVBoxSiteID: String?
+    @AppStorage("vodlib_selected_tvbox_site") private var selectedTVBoxSiteID: String?
     @State private var isLoadingTVBoxSites = false
     @State private var tvboxSiteError: String?
     @State private var loadTVBoxTask: Task<Void, Never>?
@@ -280,6 +280,10 @@ struct VODLibraryView: View {
         .navigationTitle(source.name)
         .onAppear {
             if isTVBoxAggregateSource {
+                // Restore source-specific persisted site selection
+                if let savedID = UserDefaults.standard.string(forKey: "vodlib_selected_tvbox_site_\(source.id)") {
+                    selectedTVBoxSiteID = savedID
+                }
                 loadTVBoxSitesIfNeeded()
             } else {
                 if categories.isEmpty {
@@ -311,6 +315,11 @@ struct VODLibraryView: View {
                 await MainActor.run {
                     reloadFromFirstPage()
                 }
+            }
+        }
+        .onChange(of: selectedTVBoxSiteID) { newValue in
+            if let newValue {
+                UserDefaults.standard.set(newValue, forKey: "vodlib_selected_tvbox_site_\(source.id)")
             }
         }
     }
@@ -382,6 +391,7 @@ struct VODLibraryView: View {
         guard selectedTVBoxSiteID != site.id else { return }
         DebugLog.log("VODLibraryView", "TVBox 切换站点: \(site.name)")
         selectedTVBoxSiteID = site.id
+        UserDefaults.standard.set(site.id, forKey: "vodlib_selected_tvbox_site_\(source.id)")
         resetLoadedContent()
         loadCategories()
         loadVideos(page: 1)
@@ -407,7 +417,13 @@ struct VODLibraryView: View {
                 try Task.checkCancellation()
                 await MainActor.run {
                     self.tvboxSites = preview.vodSites
-                    self.selectedTVBoxSiteID = preview.vodSites.first?.id
+                    // Respect persisted site selection if still valid
+                    if let persistedID = self.selectedTVBoxSiteID,
+                       preview.vodSites.contains(where: { $0.id == persistedID }) {
+                        // Keep persisted selection
+                    } else {
+                        self.selectedTVBoxSiteID = preview.vodSites.first?.id
+                    }
                     self.isLoadingTVBoxSites = false
                     self.tvboxSiteError = preview.vodSites.isEmpty ? "TVBox 订阅里没有可直接播放的 CMS 点播站点。" : nil
                     if preview.vodSites.isEmpty {
