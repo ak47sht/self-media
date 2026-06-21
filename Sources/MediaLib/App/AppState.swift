@@ -6467,7 +6467,16 @@ final class AppState: ObservableObject {
     }
 
     func replaceMusicQueueAndPlay(_ tracks: [MediaItem], startingAt requestedStart: MediaItem? = nil) {
-        let playableTracks = uniqueMusicTracks(tracks)
+        // 在线音乐 filePath==nil，不能走 uniqueMusicTracks（它会过滤 filePath==nil），
+        // 需要单独去重后与本地曲目合并。
+        var seen = Set<String>()
+        var playableTracks: [MediaItem] = []
+        for track in tracks {
+            guard track.type == .music, seen.insert(track.id).inserted else { continue }
+            if track.isOnlineMusic || track.filePath != nil {
+                playableTracks.append(track)
+            }
+        }
         guard !playableTracks.isEmpty else {
             alert = AppAlert(title: "无法播放", message: "这个分组里没有可播放的歌曲。")
             return
