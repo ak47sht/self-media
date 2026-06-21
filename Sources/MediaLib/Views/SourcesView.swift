@@ -1742,7 +1742,6 @@ struct SourceRowView: View {
                     Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                         .font(.title2)
                         .foregroundStyle(isSelected ? AppColors.selectedGlassTint : .secondary)
-                        .contentTransition(.symbolEffect(.replace))
                 }
                 .buttonStyle(.plain)
             }
