@@ -20,6 +20,17 @@ private extension RemoteConnectorProvider {
 struct SourcesView: View {
     @EnvironmentObject private var appState: AppState
     @State private var showingAddSourceWizard = false
+    @State private var isEditMode = false
+    @State private var selectedSourceIDs: Set<String> = []
+    @State private var showBatchDeleteConfirmation = false
+
+    private var allSourceIDs: Set<String> {
+        Set(appState.sources.map { $0.id })
+    }
+
+    private var allSelected: Bool {
+        !appState.sources.isEmpty && selectedSourceIDs == allSourceIDs
+    }
 
     var body: some View {
         ScrollView {
@@ -31,6 +42,10 @@ struct SourcesView: View {
                 )
 
                 sourceActionsToolbar
+
+                if isEditMode && !selectedSourceIDs.isEmpty {
+                    batchActionBar
+                }
 
                 if let progress = appState.scanProgress, appState.isScanning {
                     ScanProgressView(progress: progress)
@@ -46,7 +61,18 @@ struct SourcesView: View {
                 } else {
                     LazyVStack(spacing: 12) {
                         ForEach(appState.sources) { source in
-                            SourceRowView(source: source)
+                            SourceRowView(
+                                source: source,
+                                isEditMode: isEditMode,
+                                isSelected: selectedSourceIDs.contains(source.id),
+                                onToggleSelection: {
+                                    if selectedSourceIDs.contains(source.id) {
+                                        selectedSourceIDs.remove(source.id)
+                                    } else {
+                                        selectedSourceIDs.insert(source.id)
+                                    }
+                                }
+                            )
                         }
                     }
                 }
@@ -70,6 +96,23 @@ struct SourcesView: View {
             AddMediaSourceWizardSheet(vaultName: appState.settings.privacyVaultName)
                 .environmentObject(appState)
         }
+        .confirmationDialog(
+            "确认删除 \(selectedSourceIDs.count) 个媒体源？",
+            isPresented: $showBatchDeleteConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("删除", role: .destructive) {
+                batchDeleteSelected()
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("此操作不可撤销。将从媒体库移除所选来源已索引的条目；你磁盘上的原始文件不会被删除。")
+        }
+        .onChange(of: isEditMode) { editing in
+            if !editing {
+                selectedSourceIDs.removeAll()
+            }
+        }
     }
 
     private var sourceActionsToolbar: some View {
@@ -88,7 +131,70 @@ struct SourcesView: View {
             }
             .buttonStyle(LiquidGlassButtonStyle(cornerRadius: 12, horizontalPadding: 12, minHeight: 32))
             .disabled(appState.sources.isEmpty || appState.isScanning)
+
+            Spacer()
+
+            Button {
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    isEditMode.toggle()
+                }
+            } label: {
+                Label(isEditMode ? "完成" : "管理", systemImage: isEditMode ? "checkmark.circle" : "checklist")
+            }
+            .buttonStyle(LiquidGlassButtonStyle(cornerRadius: 12, horizontalPadding: 12, minHeight: 32))
         }
+    }
+
+    private var batchActionBar: some View {
+        AppSurfaceToolbar {
+            if allSelected {
+                Button {
+                    selectedSourceIDs.removeAll()
+                } label: {
+                    Label("取消全选", systemImage: "xmark.circle")
+                }
+                .buttonStyle(LiquidGlassButtonStyle(cornerRadius: 12, horizontalPadding: 12, minHeight: 32))
+            } else {
+                Button {
+                    selectedSourceIDs = allSourceIDs
+                } label: {
+                    Label("全选", systemImage: "checkmark.circle.fill")
+                }
+                .buttonStyle(LiquidGlassButtonStyle(cornerRadius: 12, horizontalPadding: 12, minHeight: 32))
+            }
+
+            Button {
+                batchScanSelected()
+            } label: {
+                Label("扫描所选", systemImage: "arrow.clockwise")
+            }
+            .buttonStyle(LiquidGlassButtonStyle(cornerRadius: 12, horizontalPadding: 12, minHeight: 32))
+            .disabled(appState.isScanning)
+
+            Button(role: .destructive) {
+                showBatchDeleteConfirmation = true
+            } label: {
+                Label("删除所选 (\(selectedSourceIDs.count))", systemImage: "trash")
+                    .foregroundStyle(.red)
+            }
+            .buttonStyle(LiquidGlassButtonStyle(cornerRadius: 12, horizontalPadding: 12, minHeight: 32))
+        }
+        .transition(.opacity.combined(with: .move(edge: .top)))
+    }
+
+    private func batchScanSelected() {
+        for source in appState.sources where selectedSourceIDs.contains(source.id) {
+            appState.scan(source)
+        }
+    }
+
+    private func batchDeleteSelected() {
+        let idsToDelete = selectedSourceIDs
+        let sourcesToDelete = appState.sources.filter { idsToDelete.contains($0.id) }
+        for source in sourcesToDelete {
+            appState.deleteSource(source)
+        }
+        selectedSourceIDs.removeAll()
     }
 }
 
@@ -1606,6 +1712,9 @@ struct SourceRowView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.suppressPointerHoverDuringScroll) private var suppressHoverDuringScroll
     let source: MediaSource
+    var isEditMode: Bool = false
+    var isSelected: Bool = false
+    var onToggleSelection: (() -> Void)? = nil
     @State private var isHovering = false
     @State private var showDeleteConfirmation = false
     @State private var showingSettings = false
@@ -1626,6 +1735,18 @@ struct SourceRowView: View {
     
     @ViewBuilder
     private func sourceRowContent(isLockedPrivateSource: Bool, isReachable: Bool) -> some View {        HStack(spacing: 14) {
+            if isEditMode {
+                Button {
+                    onToggleSelection?()
+                } label: {
+                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                        .font(.title2)
+                        .foregroundStyle(isSelected ? AppColors.selectedGlassTint : .secondary)
+                        .contentTransition(.symbolEffect(.replace))
+                }
+                .buttonStyle(.plain)
+            }
+
             ZStack {
                 RoundedRectangle(cornerRadius: 8)
                     .fill(isReachable ? AppColors.selectedGlassTint.opacity(0.12) : Color.orange.opacity(0.14))
@@ -1655,67 +1776,69 @@ struct SourceRowView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            HStack(spacing: 12) {
-                if !isReachable {
-                    Text("不可访问")
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(Color.orange)
-                        .frame(width: 58, alignment: .trailing)
-                }
+            if !isEditMode {
+                HStack(spacing: 12) {
+                    if !isReachable {
+                        Text("不可访问")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(Color.orange)
+                            .frame(width: 58, alignment: .trailing)
+                    }
 
-                Button {
-                    showingSettings = true
-                } label: {
-                    Image(systemName: "slider.horizontal.3")
-                        .frame(width: 18, height: 18)
-                }
-                .buttonStyle(RepeatedGlassButtonStyle(cornerRadius: 10, horizontalPadding: 8, minHeight: 32, thickness: 0.96))
-                .help("设置")
-
-                if !isReachable, appState.canRemountNetworkSource(source) {
                     Button {
-                        appState.remountNetworkSource(source)
+                        showingSettings = true
                     } label: {
-                        Image(systemName: "arrow.triangle.2.circlepath")
+                        Image(systemName: "slider.horizontal.3")
                             .frame(width: 18, height: 18)
                     }
                     .buttonStyle(RepeatedGlassButtonStyle(cornerRadius: 10, horizontalPadding: 8, minHeight: 32, thickness: 0.96))
-                    .help("重新挂载")
-                }
+                    .help("设置")
 
-                Button {
-                    appState.scan(source)
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                        .frame(width: 18, height: 18)
-                }
-                .buttonStyle(RepeatedGlassButtonStyle(cornerRadius: 10, horizontalPadding: 8, minHeight: 32, thickness: 0.96))
-                .disabled(appState.isScanning || !isReachable)
-                .help("扫描")
-
-                Button(role: .destructive) {
-                    showDeleteConfirmation = true
-                } label: {
-                    Image(systemName: "trash")
-                        .frame(width: 18, height: 18)
-                        .foregroundStyle(.red)
-                }
-                .buttonStyle(RepeatedGlassButtonStyle(cornerRadius: 10, horizontalPadding: 8, minHeight: 32, thickness: 0.96))
-                .help("删除")
-                .confirmationDialog(
-                    "删除媒体源「\(sourceTitle(isLockedPrivateSource: isLockedPrivateSource))」？",
-                    isPresented: $showDeleteConfirmation,
-                    titleVisibility: .visible
-                ) {
-                    Button("删除", role: .destructive) {
-                        appState.deleteSource(source)
+                    if !isReachable, appState.canRemountNetworkSource(source) {
+                        Button {
+                            appState.remountNetworkSource(source)
+                        } label: {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                                .frame(width: 18, height: 18)
+                        }
+                        .buttonStyle(RepeatedGlassButtonStyle(cornerRadius: 10, horizontalPadding: 8, minHeight: 32, thickness: 0.96))
+                        .help("重新挂载")
                     }
-                    Button("取消", role: .cancel) {}
-                } message: {
-                    Text("将从媒体库移除该来源已索引的条目；你磁盘上的原始文件不会被删除。")
+
+                    Button {
+                        appState.scan(source)
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                            .frame(width: 18, height: 18)
+                    }
+                    .buttonStyle(RepeatedGlassButtonStyle(cornerRadius: 10, horizontalPadding: 8, minHeight: 32, thickness: 0.96))
+                    .disabled(appState.isScanning || !isReachable)
+                    .help("扫描")
+
+                    Button(role: .destructive) {
+                        showDeleteConfirmation = true
+                    } label: {
+                        Image(systemName: "trash")
+                            .frame(width: 18, height: 18)
+                            .foregroundStyle(.red)
+                    }
+                    .buttonStyle(RepeatedGlassButtonStyle(cornerRadius: 10, horizontalPadding: 8, minHeight: 32, thickness: 0.96))
+                    .help("删除")
+                    .confirmationDialog(
+                        "删除媒体源「\(sourceTitle(isLockedPrivateSource: isLockedPrivateSource))」？",
+                        isPresented: $showDeleteConfirmation,
+                        titleVisibility: .visible
+                    ) {
+                        Button("删除", role: .destructive) {
+                            appState.deleteSource(source)
+                        }
+                        Button("取消", role: .cancel) {}
+                    } message: {
+                        Text("将从媒体库移除该来源已索引的条目；你磁盘上的原始文件不会被删除。")
+                    }
                 }
+                .fixedSize(horizontal: true, vertical: false)
             }
-            .fixedSize(horizontal: true, vertical: false)
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .trailing)
