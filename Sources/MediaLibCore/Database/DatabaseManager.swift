@@ -2,7 +2,7 @@ import Foundation
 import SQLite3
 
 public final class DatabaseManager {
-    public static let currentSchemaVersion = 20
+    public static let currentSchemaVersion = 21
 
     private var db: OpaquePointer?
     private let queue = DispatchQueue(label: "MediaLib.DatabaseManager")
@@ -335,6 +335,13 @@ public final class DatabaseManager {
                 try execute("PRAGMA user_version = 20")
             }
             version = 20
+        }
+        if version < 21 {
+            try transaction {
+                try migrateToVersion21()
+                try execute("PRAGMA user_version = 21")
+            }
+            version = 21
         }
         guard version == Self.currentSchemaVersion else {
             throw DatabaseError.incompatibleSchema(found: version, supported: Self.currentSchemaVersion)
@@ -832,8 +839,17 @@ public final class DatabaseManager {
         try execute("CREATE INDEX IF NOT EXISTS index_vod_videos_type ON vod_videos_cache(type)")
         try execute("CREATE INDEX IF NOT EXISTS index_vod_videos_year ON vod_videos_cache(year)")
     }
-    
-    
+
+    private func migrateToVersion21() throws {
+        // Persist online music identity so saved/favorited online songs remain
+        // playable (onlineMusicID/Provider/CoverURL) after app restart.
+        try addColumnIfMissing(table: "media_items", column: "online_music_id", definition: "online_music_id TEXT")
+        try addColumnIfMissing(table: "media_items", column: "online_music_provider", definition: "online_music_provider TEXT")
+        try addColumnIfMissing(table: "media_items", column: "online_music_cover_url", definition: "online_music_cover_url TEXT")
+        try execute("CREATE INDEX IF NOT EXISTS index_media_items_online_music_id ON media_items(online_music_id) WHERE online_music_id IS NOT NULL")
+    }
+
+
     private func validateBackup(at backupURL: URL) throws {
         guard FileManager.default.fileExists(atPath: backupURL.path) else {
             throw DatabaseError.backupFailed("选择的备份文件不存在。")

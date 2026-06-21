@@ -15,8 +15,9 @@ public final class MediaRepository {
               rating, user_rating, runtime, source_path, parent_id, season_number, episode_number,
               file_path, file_size, video_codec, audio_codec, resolution, video_bitrate, duration,
               loudness_track_gain_db, loudness_album_gain_db, loudness_track_peak, loudness_album_peak,
-              play_count, play_position, play_progress, watched, favorite, watchlist, external_id, metadata_provider, collection_title, created_at, updated_at, last_played_at, genre
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              play_count, play_position, play_progress, watched, favorite, watchlist, external_id, metadata_provider, collection_title, created_at, updated_at, last_played_at, genre,
+              online_music_id, online_music_provider, online_music_cover_url
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
               type = excluded.type,
               title = CASE
@@ -59,6 +60,9 @@ public final class MediaRepository {
               metadata_provider = COALESCE(excluded.metadata_provider, media_items.metadata_provider),
               collection_title = COALESCE(excluded.collection_title, media_items.collection_title),
               genre = COALESCE(excluded.genre, media_items.genre),
+              online_music_id = COALESCE(excluded.online_music_id, media_items.online_music_id),
+              online_music_provider = COALESCE(excluded.online_music_provider, media_items.online_music_provider),
+              online_music_cover_url = COALESCE(excluded.online_music_cover_url, media_items.online_music_cover_url),
               updated_at = excluded.updated_at
             """,
             bindings: bindings(for: item)
@@ -485,7 +489,8 @@ public final class MediaRepository {
                rating, user_rating, runtime, source_path, parent_id, season_number, episode_number,
                file_path, file_size, video_codec, audio_codec, resolution, video_bitrate, duration,
                loudness_track_gain_db, loudness_album_gain_db, loudness_track_peak, loudness_album_peak,
-               play_count, play_position, play_progress, watched, favorite, watchlist, external_id, metadata_provider, collection_title, created_at, updated_at, last_played_at, genre
+               play_count, play_position, play_progress, watched, favorite, watchlist, external_id, metadata_provider, collection_title, created_at, updated_at, last_played_at, genre,
+               online_music_id, online_music_provider, online_music_cover_url
         FROM media_items
         """
     }
@@ -533,7 +538,10 @@ public final class MediaRepository {
             .optionalDate(item.createdAt),
             .optionalDate(item.updatedAt),
             .optionalDate(item.lastPlayedAt),
-            .optionalText(item.genre)
+            .optionalText(item.genre),
+            .optionalText(item.onlineMusicID),
+            .optionalText(item.onlineMusicProvider),
+            .optionalText(item.onlineMusicCoverURL)
         ]
     }
 
@@ -580,7 +588,10 @@ public final class MediaRepository {
             createdAt: row.date(38) ?? Date(),
             updatedAt: row.date(39) ?? Date(),
             lastPlayedAt: row.date(40),
-            genre: row.string(41)
+            genre: row.string(41),
+            onlineMusicID: row.string(42),
+            onlineMusicProvider: row.string(43),
+            onlineMusicCoverURL: row.string(44)
         )
     }
 
