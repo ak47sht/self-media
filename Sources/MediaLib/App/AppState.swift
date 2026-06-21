@@ -1445,20 +1445,29 @@ final class AppState: ObservableObject {
     /// 彻底删除在线音乐歌曲：从所有歌单移出 + 从数据库删除 + 从缓存移除
     func deleteOnlineMusicItem(_ item: MediaItem) {
         guard item.isOnlineMusic else { return }
+        let itemID = item.id
         // 1. 从所有包含该曲目的歌单中移出
-        for playlist in musicPlaylists where playlist.itemIDs.contains(item.id) {
+        for playlist in musicPlaylists where playlist.itemIDs.contains(itemID) {
             removeMusicTracks([item], from: playlist)
         }
         // 2. 从数据库删除
         do {
-            try mediaRepository?.deleteItems(ids: [item.id])
+            try mediaRepository?.deleteItems(ids: [itemID])
         } catch {
             showError("删除在线音乐失败", error)
             return
         }
         // 3. 从内存缓存移除
-        cachedMusicTracksByID.removeValue(forKey: item.id)
-        cachedMusicTracks.removeAll { $0.id == item.id }
+        cachedMusicTracksByID.removeValue(forKey: itemID)
+        cachedMusicTracks.removeAll { $0.id == itemID }
+        items.removeAll { $0.id == itemID }
+        cachedTopLevelItems.removeAll { $0.id == itemID }
+        // 4. 清理播放相关状态
+        if activePlayerItem?.id == itemID { activePlayerItem = nil }
+        if selectedItem?.id == itemID { selectedItem = nil }
+        if quickPreviewItem?.id == itemID { quickPreviewItem = nil }
+        musicQueue.removeAll { $0.id == itemID }
+        scheduleMusicQueuePersistence()
         libraryRevision += 1
     }
 
