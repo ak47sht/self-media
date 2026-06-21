@@ -1442,33 +1442,55 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// 彻底删除在线音乐歌曲：从所有歌单移出 + 从数据库删除 + 从缓存移除
-    func deleteOnlineMusicItem(_ item: MediaItem) {
-        guard item.isOnlineMusic else { return }
-        let itemID = item.id
-        // 1. 从所有包含该曲目的歌单中移出
-        for playlist in musicPlaylists where playlist.itemIDs.contains(itemID) {
-            removeMusicTracks([item], from: playlist)
+    /// 彻底删除单首在线音乐：从所有歌单移出 + 从数据库删除 + 从缓存移除
+    @discardableResult
+    func deleteOnlineMusicItem(_ item: MediaItem) -> Int {
+        guard item.isOnlineMusic else { return 0 }
+        return deleteOnlineMusicItems([item])
+    }
+
+    /// 批量清理历史在线音乐残留数据。
+    /// 在线音乐没有本地文件，删除时只清理 App 内数据库/缓存/播放状态，不影响用户磁盘文件。
+    @discardableResult
+    func deleteAllOnlineMusicItems() -> Int {
+        deleteOnlineMusicItems(musicTracks.filter(\.isOnlineMusic))
+    }
+
+    @discardableResult
+    private func deleteOnlineMusicItems(_ tracks: [MediaItem]) -> Int {
+        let onlineTracks = uniqueMusicTracks(tracks).filter(\.isOnlineMusic)
+        let itemIDs = Set(onlineTracks.map(\.id))
+        guard !itemIDs.isEmpty else { return 0 }
+
+        // 1. 从所有包含这些曲目的歌单中移出
+        for playlist in musicPlaylists where playlist.itemIDs.contains(where: itemIDs.contains) {
+            removeMusicTracks(onlineTracks, from: playlist)
         }
+
         // 2. 从数据库删除
         do {
-            try mediaRepository?.deleteItems(ids: [itemID])
+            try mediaRepository?.deleteItems(ids: Array(itemIDs))
         } catch {
             showError("删除在线音乐失败", error)
-            return
+            return 0
         }
+
         // 3. 从内存缓存移除
-        cachedMusicTracksByID.removeValue(forKey: itemID)
-        cachedMusicTracks.removeAll { $0.id == itemID }
-        items.removeAll { $0.id == itemID }
-        cachedTopLevelItems.removeAll { $0.id == itemID }
+        for itemID in itemIDs {
+            cachedMusicTracksByID.removeValue(forKey: itemID)
+        }
+        cachedMusicTracks.removeAll { itemIDs.contains($0.id) }
+        items.removeAll { itemIDs.contains($0.id) }
+        cachedTopLevelItems.removeAll { itemIDs.contains($0.id) }
+
         // 4. 清理播放相关状态
-        if activePlayerItem?.id == itemID { activePlayerItem = nil }
-        if selectedItem?.id == itemID { selectedItem = nil }
-        if quickPreviewItem?.id == itemID { quickPreviewItem = nil }
-        musicQueue.removeAll { $0.id == itemID }
+        if activePlayerItem.map({ itemIDs.contains($0.id) }) == true { activePlayerItem = nil }
+        if selectedItem.map({ itemIDs.contains($0.id) }) == true { selectedItem = nil }
+        if quickPreviewItem.map({ itemIDs.contains($0.id) }) == true { quickPreviewItem = nil }
+        musicQueue.removeAll { itemIDs.contains($0.id) }
         scheduleMusicQueuePersistence()
         libraryRevision += 1
+        return itemIDs.count
     }
 
     func moveMusicPlaylistItems(in playlist: MusicPlaylist, fromOffsets: IndexSet, toOffset: Int) {

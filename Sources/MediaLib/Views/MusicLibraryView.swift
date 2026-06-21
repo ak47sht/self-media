@@ -356,6 +356,7 @@ struct MusicLibraryView: View {
     @State private var playlistRenameRequest: MusicPlaylistRenameRequest?
     @State private var playlistPendingDeletion: MusicPlaylist?
     @State private var isConfirmingPlaylistDeletion = false
+    @State private var isConfirmingOnlineMusicCleanup = false
     @State private var contentRefreshTask: Task<Void, Never>?
     @State private var searchRefreshTask: Task<Void, Never>?
     @State private var lyricsRefreshTask: Task<Void, Never>?
@@ -427,35 +428,15 @@ struct MusicLibraryView: View {
             onlineMusicCoverURL: song.coverURL
         )
 
-        // 确保"在线音乐"歌单存在
-        let playlistName = "在线音乐"
-        var targetPlaylist = appState.musicPlaylists.first { $0.name == playlistName }
-
-        if targetPlaylist == nil {
-            // 创建新歌单
-            targetPlaylist = appState.createMusicPlaylist(name: playlistName, tracks: [])
-        }
-
-        guard let playlist = targetPlaylist else {
-            appState.alert = AppAlert(title: "保存失败", message: "无法创建歌单")
+        // 在线音乐不再自动创建「在线音乐」歌单，只保存到歌曲库，避免历史歌单残留。
+        if appState.musicTracks.contains(where: { $0.id == mediaItem.id }) {
+            appState.alert = AppAlert(title: "已保存", message: "\(song.name) 已在歌曲库中")
             return
         }
-
-        // 检查是否已存在
-        if playlist.itemIDs.contains(mediaItem.id) {
-            appState.alert = AppAlert(title: "已收藏", message: "\(song.name) 已在「\(playlistName)」歌单中")
-            return
-        }
-
-        // 先保存 MediaItem 到数据库
 
         do {
             try appState.upsertMediaItem(mediaItem)
-
-            // 添加到歌单
-            appState.addMusicTracks([mediaItem], to: playlist)
-
-            appState.alert = AppAlert(title: "已收藏", message: "\(song.name) 已加入「\(playlistName)」歌单")
+            appState.alert = AppAlert(title: "已保存", message: "\(song.name) 已加入歌曲库")
         } catch {
             appState.showError("保存失败", error)
         }
@@ -554,6 +535,24 @@ struct MusicLibraryView: View {
             }
         } message: { playlist in
             Text("只会删掉这个歌单，你电脑里的歌曲文件不会被移动、删除或改名。")
+        }
+        .confirmationDialog(
+            "清理在线音乐残留？",
+            isPresented: $isConfirmingOnlineMusicCleanup
+        ) {
+            Button("删除 \(onlineMusicTrackCount) 首在线音乐", role: .destructive) {
+                let count = appState.deleteAllOnlineMusicItems()
+                appState.alert = AppAlert(
+                    title: "清理完成",
+                    message: count > 0 ? "已删除 \(count) 首在线音乐残留。" : "没有需要清理的在线音乐残留。"
+                )
+                isConfirmingOnlineMusicCleanup = false
+            }
+            Button("取消", role: .cancel) {
+                isConfirmingOnlineMusicCleanup = false
+            }
+        } message: {
+            Text("会从歌曲 tab、所有歌单、播放队列和数据库中删除所有在线音乐记录。不会删除本地音乐文件。")
         }
         .onChange(of: appState.musicPlaylists) { _ in
             refreshActivePlaylistDrilldown()
@@ -746,6 +745,15 @@ struct MusicLibraryView: View {
                 }
                 .disabled(appState.sources.isEmpty || appState.isScanning)
 
+                if section == .songs && onlineMusicTrackCount > 0 {
+                    Button(role: .destructive) {
+                        isConfirmingOnlineMusicCleanup = true
+                    } label: {
+                        Label("清理在线音乐", systemImage: "trash")
+                            .foregroundStyle(.red)
+                    }
+                }
+
                 if showsResetAllPlayCountAction {
                     Button {
                         appState.resetAllMusicPlayCounts()
@@ -793,6 +801,10 @@ struct MusicLibraryView: View {
 
     private var playbackTraceTracks: [MediaItem] {
         displayedTrackRows.map(\.track).filter(\.hasPlaybackTrace)
+    }
+
+    private var onlineMusicTrackCount: Int {
+        appState.musicTracks.filter(\.isOnlineMusic).count
     }
 
     private var visiblePlayableTracks: [MediaItem] {
@@ -2078,7 +2090,7 @@ private struct MusicSongRow: View {
             }
             if row.track.isOnlineMusic {
                 Button(role: .destructive) {
-                    appState.deleteOnlineMusicItem(row.track)
+                    _ = appState.deleteOnlineMusicItem(row.track)
                 } label: {
                     Label("删除在线音乐", systemImage: "trash")
                 }
