@@ -103,6 +103,7 @@ private enum MusicLibrarySnapshotCache {
         let sortMode: MusicSortMode
         let sortOrder: MusicSortOrder
         let filterMode: MusicFilterMode
+        let projectionRevision: Int
         let revision: Int
         let lyricsRevision: Int
     }
@@ -150,6 +151,7 @@ private struct MusicLibrarySnapshotBuildInput: Sendable {
     let sortMode: MusicSortMode
     let sortOrder: MusicSortOrder
     let filterMode: MusicFilterMode
+    let projectionSnapshot: MusicLibraryProjectionSnapshot?
 }
 
 private enum MusicFavoritePlaylist {
@@ -181,10 +183,20 @@ private func musicDisplayAlbum(_ value: String?) -> String {
 private enum MusicLibrarySnapshotBuilder {
     static func snapshot(from input: MusicLibrarySnapshotBuildInput) -> MusicLibrarySnapshotCache.Snapshot {
         let tracks = resolvedTracks(from: input.tracks, input: input)
+        let albums: [MusicAlbumGroup]
+        let artists: [MusicArtistGroup]
+        if usesProjectionGroups(input), let projectionSnapshot = input.projectionSnapshot {
+            let tracksByID = Dictionary(input.tracks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            albums = albumGroups(from: projectionSnapshot.albums, tracksByID: tracksByID, sortMode: input.sortMode, sortOrder: input.sortOrder)
+            artists = artistGroups(from: projectionSnapshot.artists, tracksByID: tracksByID, sortMode: input.sortMode, sortOrder: input.sortOrder)
+        } else {
+            albums = albumGroups(from: tracks, sortMode: input.sortMode, sortOrder: input.sortOrder)
+            artists = artistGroups(from: tracks, sortMode: input.sortMode, sortOrder: input.sortOrder)
+        }
         return MusicLibrarySnapshotCache.Snapshot(
             rows: rowModels(from: tracks),
-            albums: albumGroups(from: tracks, sortMode: input.sortMode, sortOrder: input.sortOrder),
-            artists: artistGroups(from: tracks, sortMode: input.sortMode, sortOrder: input.sortOrder)
+            albums: albums,
+            artists: artists
         )
     }
 
@@ -283,7 +295,70 @@ private enum MusicLibrarySnapshotBuilder {
         let groups = grouped.map { name, items in
             MusicArtistGroup(name: name, tracks: items.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending })
         }
-        return groups.sorted { lhs, rhs in
+        return sortArtistGroups(groups, sortMode: sortMode, sortOrder: sortOrder)
+    }
+
+    private static func usesProjectionGroups(_ input: MusicLibrarySnapshotBuildInput) -> Bool {
+        input.projectionSnapshot != nil &&
+        input.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        input.filterMode == .all &&
+        (input.section == .albums || input.section == .artists)
+    }
+
+    private static func albumGroups(
+        from summaries: [MusicAlbumSummary],
+        tracksByID: [String: MediaItem],
+        sortMode: MusicSortMode,
+        sortOrder: MusicSortOrder
+    ) -> [MusicAlbumGroup] {
+        let groups = summaries.compactMap { summary -> MusicAlbumGroup? in
+            let tracks = summary.trackIDs.compactMap { tracksByID[$0] }
+            guard !tracks.isEmpty else { return nil }
+            return MusicAlbumGroup(
+                key: MusicAlbumKey(title: summary.title, artist: summary.artist),
+                tracks: tracks
+            )
+        }
+        return sortAlbumGroups(groups, sortMode: sortMode, sortOrder: sortOrder)
+    }
+
+    private static func artistGroups(
+        from summaries: [MusicArtistSummary],
+        tracksByID: [String: MediaItem],
+        sortMode: MusicSortMode,
+        sortOrder: MusicSortOrder
+    ) -> [MusicArtistGroup] {
+        let groups = summaries.compactMap { summary -> MusicArtistGroup? in
+            let tracks = summary.trackIDs.compactMap { tracksByID[$0] }
+            guard !tracks.isEmpty else { return nil }
+            return MusicArtistGroup(name: summary.name, tracks: tracks)
+        }
+        return sortArtistGroups(groups, sortMode: sortMode, sortOrder: sortOrder)
+    }
+
+    private static func sortAlbumGroups(_ groups: [MusicAlbumGroup], sortMode: MusicSortMode, sortOrder: MusicSortOrder) -> [MusicAlbumGroup] {
+        groups.sorted { lhs, rhs in
+            switch sortMode {
+            case .artist:
+                return sortedText(lhs.key.artist, rhs.key.artist, order: sortOrder) ??
+                    sortedText(lhs.key.title, rhs.key.title, order: .primary) ?? true
+            case .recent:
+                return sortedDate(lhs.latestUpdatedAt, rhs.latestUpdatedAt, order: sortOrder) ??
+                    sortedText(lhs.key.title, rhs.key.title, order: .primary) ?? true
+            case .mostPlayed:
+                return sortedNumber(lhs.playCount, rhs.playCount, order: sortOrder) ??
+                    sortedText(lhs.key.title, rhs.key.title, order: .primary) ?? true
+            case .workCount:
+                return sortedNumber(lhs.tracks.count, rhs.tracks.count, order: sortOrder) ??
+                    sortedText(lhs.key.title, rhs.key.title, order: .primary) ?? true
+            default:
+                return sortedText(lhs.key.title, rhs.key.title, order: sortOrder) ?? true
+            }
+        }
+    }
+
+    private static func sortArtistGroups(_ groups: [MusicArtistGroup], sortMode: MusicSortMode, sortOrder: MusicSortOrder) -> [MusicArtistGroup] {
+        groups.sorted { lhs, rhs in
             switch sortMode {
             case .workCount:
                 return sortedNumber(lhs.tracks.count, rhs.tracks.count, order: sortOrder) ??
@@ -618,6 +693,13 @@ struct MusicLibraryView: View {
                     refreshActivePlaylistDrilldown()
                 }
             }
+            .onChange(of: appState.musicLibraryProjectionRevision) { _ in
+                guard section == .albums || section == .artists else { return }
+                searchRefreshTask?.cancel()
+                if drilldown == nil {
+                    refreshVisibleContent(for: section, deferred: true)
+                }
+            }
             .onChange(of: appState.favoriteRevision) { _ in
                 if filterMode == .favorites || section == .favorites {
                     searchRefreshTask?.cancel()
@@ -864,6 +946,7 @@ struct MusicLibraryView: View {
             sortMode: sortMode,
             sortOrder: sortOrder,
             filterMode: filterMode,
+            projectionRevision: appState.musicLibraryProjectionRevision,
             revision: appState.libraryRevision,
             lyricsRevision: MusicLyricsPresenceCache.revision
         )
@@ -917,7 +1000,8 @@ struct MusicLibraryView: View {
             searchText: key.searchText,
             sortMode: key.sortMode,
             sortOrder: key.sortOrder,
-            filterMode: key.filterMode
+            filterMode: key.filterMode,
+            projectionSnapshot: appState.musicLibraryProjectionSnapshot
         )
         let snapshot = await Task.detached(priority: .userInitiated) {
             MusicLibrarySnapshotBuilder.snapshot(from: input)

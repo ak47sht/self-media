@@ -58,11 +58,17 @@ final class MusicLibraryProjectionRepositoryTests: XCTestCase {
         XCTAssertTrue(first.trackIDs.isEmpty)
         XCTAssertEqual(try projectionRepository.albumTrackIDs(albumID: first.id), ["song-2", "song-1"])
 
+        let snapshotWithTrackIDs = try projectionRepository.fetchSnapshotWithTrackIDs()
+        let firstWithTrackIDs = try XCTUnwrap(snapshotWithTrackIDs.albums.first { $0.title == "First" })
+        XCTAssertEqual(firstWithTrackIDs.trackIDs, ["song-2", "song-1"])
+
         let artist = try XCTUnwrap(snapshot.artists.first { $0.name == "A" })
         XCTAssertEqual(artist.trackCount, 2)
         XCTAssertEqual(artist.albumCount, 1)
         XCTAssertTrue(artist.trackIDs.isEmpty)
         XCTAssertEqual(try projectionRepository.artistTrackIDs(artistID: artist.id), ["song-2", "song-1"])
+        let artistWithTrackIDs = try XCTUnwrap(snapshotWithTrackIDs.artists.first { $0.name == "A" })
+        XCTAssertEqual(artistWithTrackIDs.trackIDs, ["song-2", "song-1"])
         XCTAssertFalse(try projectionRepository.needsBackfill())
     }
 

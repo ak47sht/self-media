@@ -66,6 +66,27 @@ public final class MusicLibraryProjectionRepository {
         }
     }
 
+    public func fetchSnapshotWithTrackIDs() throws -> MusicLibraryProjectionSnapshot {
+        var snapshot = try fetchSnapshot()
+        snapshot.albums = try snapshot.albums.map { album in
+            var album = album
+            album.trackIDs = try albumTrackIDs(albumID: album.id)
+            return album
+        }
+        snapshot.artists = try snapshot.artists.map { artist in
+            var artist = artist
+            artist.trackIDs = try artistTrackIDs(artistID: artist.id)
+            return artist
+        }
+        return snapshot
+    }
+
+    public func fetchSnapshotWithTrackIDsAsync() async throws -> MusicLibraryProjectionSnapshot {
+        try await database.transactionAsync {
+            try self.fetchSnapshotWithTrackIDs()
+        }
+    }
+
     public func albumTrackIDs(albumID: String) throws -> [String] {
         try relationIDs(
             table: "music_album_track_index",

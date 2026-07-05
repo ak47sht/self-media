@@ -437,6 +437,8 @@ final class AppState: ObservableObject {
     @Published private(set) var isConnectingJellyfin = false
     @Published private(set) var isConnectingPlex = false
     @Published var musicMetadataFetchProgress = ""
+    @Published private(set) var musicLibraryProjectionSnapshot: MusicLibraryProjectionSnapshot?
+    @Published private(set) var musicLibraryProjectionRevision = 0
     @Published private(set) var libraryRevision = 0
     /// 仅在 reload() 完成（元数据/封面路径真实变化）时递增；文件存在性检查不会触发它。
     /// LocalPosterImage 的 cacheKey 改用此值，避免文件健康检查后触发全量图片重载。
@@ -458,6 +460,7 @@ final class AppState: ObservableObject {
     private let sourceRepository: SourceRepository?
     let mediaRepository: MediaRepository?
     private let musicPlaylistRepository: MusicPlaylistRepository?
+    private let musicLibraryProjectionRepository: MusicLibraryProjectionRepository?
     private let musicQueueRepository: MusicQueueRepository?
     private let videoSmartCollectionRepository: VideoSmartCollectionRepository?
     private let videoManualCollectionRepository: VideoManualCollectionRepository?
@@ -573,6 +576,7 @@ final class AppState: ObservableObject {
             self.sourceRepository = SourceRepository(database: database)
             self.mediaRepository = MediaRepository(database: database)
             self.musicPlaylistRepository = MusicPlaylistRepository(database: database)
+            self.musicLibraryProjectionRepository = MusicLibraryProjectionRepository(database: database)
             self.musicQueueRepository = MusicQueueRepository(database: database)
             self.videoSmartCollectionRepository = VideoSmartCollectionRepository(database: database)
             self.videoManualCollectionRepository = VideoManualCollectionRepository(database: database)
@@ -609,6 +613,7 @@ final class AppState: ObservableObject {
             self.sourceRepository = nil
             self.mediaRepository = nil
             self.musicPlaylistRepository = nil
+            self.musicLibraryProjectionRepository = nil
             self.musicQueueRepository = nil
             self.videoSmartCollectionRepository = nil
             self.videoManualCollectionRepository = nil
@@ -1335,6 +1340,7 @@ final class AppState: ObservableObject {
             } else if let idx = cachedMusicTracks.firstIndex(where: { $0.id == item.id }) {
                 cachedMusicTracks[idx] = item
             }
+            refreshMusicLibraryProjection(reason: "music item upsert")
         }
     }
 
@@ -1510,6 +1516,7 @@ final class AppState: ObservableObject {
         musicQueue.removeAll { itemIDs.contains($0.id) }
         scheduleMusicQueuePersistence()
         libraryRevision += 1
+        refreshMusicLibraryProjection(reason: "online music cleanup")
         return itemIDs.count
     }
 
@@ -2662,6 +2669,7 @@ final class AppState: ObservableObject {
             logPerformance("reload.scheduleFileHealthRefresh: \(Self.milliseconds(since: healthStart))ms")
             libraryRevision += 1
             posterRevision += 1
+            refreshMusicLibraryProjection(reason: "library reload")
             pruneExpiredVideoOfflineSubscriptions(reason: "library reload", notify: false)
             scheduleVideoOfflineSubscriptionExpirationCheck(reason: "library reload")
             scheduleVideoOfflineSubscriptionMaintenance(reason: "library reload")
@@ -2669,6 +2677,37 @@ final class AppState: ObservableObject {
             logPerformance("reload.total: \(Self.milliseconds(since: reloadStart))ms revision=\(libraryRevision) posterRevision=\(posterRevision)")
         } catch {
             showError("加载媒体库失败", error)
+        }
+    }
+
+    private func refreshMusicLibraryProjection(reason: String) {
+        guard let musicLibraryProjectionRepository else {
+            musicLibraryProjectionSnapshot = nil
+            return
+        }
+        Task { [weak self] in
+            do {
+                let plan = try await musicLibraryProjectionRepository.maintenancePlanAsync()
+                switch plan {
+                case .bootstrap:
+                    _ = try await musicLibraryProjectionRepository.rebuildAll()
+                case .incremental:
+                    _ = try await musicLibraryProjectionRepository.synchronizeIncremental()
+                case .none:
+                    break
+                }
+                let snapshot = try await musicLibraryProjectionRepository.fetchSnapshotWithTrackIDsAsync()
+                await MainActor.run {
+                    self?.musicLibraryProjectionSnapshot = snapshot
+                    self?.musicLibraryProjectionRevision += 1
+                    self?.logPerformance("musicProjection.refresh \(reason): albums=\(snapshot.albums.count) artists=\(snapshot.artists.count)")
+                }
+            } catch {
+                await MainActor.run {
+                    self?.logger?.log("音乐库投影刷新失败（\(reason)）：\(error.localizedDescription)", level: .warning)
+                    self?.musicLibraryProjectionSnapshot = nil
+                }
+            }
         }
     }
 
@@ -8798,6 +8837,9 @@ final class AppState: ObservableObject {
         }
         rebuildDerivedItemCaches()
         libraryRevision += 1
+        if items.contains(where: { $0.id == id && $0.type == .music }) {
+            refreshMusicLibraryProjection(reason: "music metadata update")
+        }
     }
 
     private func fetchLyricsIfPossible(for track: MediaItem) async {
