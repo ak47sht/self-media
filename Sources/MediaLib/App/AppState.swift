@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Foundation
 import MediaLibCore
 import Network
@@ -375,7 +376,7 @@ final class AppState: ObservableObject {
     /// 可用的新版本（驱动更新提示弹窗）。
     @Published var availableUpdate: AppUpdateInfo?
     @Published var isCheckingForUpdates = false
-    private var updateCheckTask: Task<Void, Never>?
+    var updateCheckTask: Task<Void, Never>?
     /// 第三次启动时弹出的赞赏邀请。
     @Published var showingSponsorPrompt = false
     @Published var quickPreviewItem: MediaItem?
@@ -403,9 +404,11 @@ final class AppState: ObservableObject {
     @Published private(set) var floatingNotices: [AppFloatingNotice] = []
     /// 受限远程媒体服务器提示（白名单拒绝）；非 nil 时弹出专用面板。
     @Published var embyRestrictionNotice: EmbyRestrictionNotice?
-    /// C2 批量操作：海报墙多选模式开关与已选条目 ID 集合。
-    @Published var isSelectionModeActive = false
-    @Published var selectedItemIDs: Set<String> = []
+    /// C2 批量操作：海报墙多选状态已抽到 SelectionStore；保留旧访问器以兼容视图。
+    let selection = SelectionStore()
+    private var selectionForwarding: AnyCancellable?
+    var isSelectionModeActive: Bool { selection.isSelectionModeActive }
+    var selectedItemIDs: Set<String> { selection.selectedItemIDs }
     /// 配色切换计数：每次切换预设 +1，驱动整窗"加载过场"覆盖层在下层刷新界面，避免逐控件慢慢变色。
     @Published var themeRevision = 0
     @Published var startupError: String?
@@ -453,7 +456,7 @@ final class AppState: ObservableObject {
     let directories: AppDirectories?
     let database: DatabaseManager?
     private let sourceRepository: SourceRepository?
-    private let mediaRepository: MediaRepository?
+    let mediaRepository: MediaRepository?
     private let musicPlaylistRepository: MusicPlaylistRepository?
     private let musicQueueRepository: MusicQueueRepository?
     private let videoSmartCollectionRepository: VideoSmartCollectionRepository?
@@ -466,7 +469,7 @@ final class AppState: ObservableObject {
     private let remoteConnectorAccountRepository: RemoteConnectorAccountRepository?
     private let videoOfflineCacheStore: VideoOfflineCacheStore?
     private let settingsStore = AppSettingsStore()
-    private let logger: LoggingService?
+    let logger: LoggingService?
     private let externalPlayerService = ExternalPlayerService()
     private let privacyLockService = PrivacyLockService()
     private let remoteCredentialStore = RemoteCredentialStore()
@@ -617,6 +620,9 @@ final class AppState: ObservableObject {
             self.remoteConnectorAccountRepository = nil
             self.videoOfflineCacheStore = nil
             self.startupError = error.localizedDescription
+        }
+        selectionForwarding = selection.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
         }
         configureNetworkPathMonitoring()
         appDidBecomeActiveObserver = NotificationCenter.default.addObserver(
@@ -2412,7 +2418,7 @@ final class AppState: ObservableObject {
         )
     }
 
-    private func userRatingNoticeSuffix(_ rating: Double?) -> String {
+    func userRatingNoticeSuffix(_ rating: Double?) -> String {
         guard let rating, rating.isFinite, rating > 0 else { return "已清除星级" }
         let rounded = (rating * 10).rounded() / 10
         if rounded.rounded() == rounded {
@@ -6649,84 +6655,6 @@ final class AppState: ObservableObject {
         activePlayerItem = item
     }
 
-    /// 检查 GitHub Releases 是否有新版本。手动检查总是反馈结果；
-    /// 静默检查（每日首启）尊重「跳过该版本 / 永不提醒」，失败不打扰用户且不消耗当天成功检查。
-    func checkForUpdates(manual: Bool) {
-        if isCheckingForUpdates {
-            if manual {
-                alert = AppAlert(
-                    title: localized("正在检查更新"),
-                    message: localized("MediaLIB 正在后台确认最新版本，请稍等。")
-                )
-            }
-            return
-        }
-        isCheckingForUpdates = true
-        updateCheckTask?.cancel()
-        updateCheckTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            defer {
-                self.isCheckingForUpdates = false
-                self.updateCheckTask = nil
-            }
-            do {
-                guard let info = try await AppUpdateChecker.fetchLatestRelease(),
-                      AppVersion.isVersion(info.version, newerThan: AppVersion.current) else {
-                self.markUpdateCheckSucceeded()
-                if manual {
-                    self.alert = AppAlert(
-                        title: self.localized("已是最新版本"),
-                        message: "\(self.localized("当前版本")) \(AppVersion.current)。"
-                    )
-                }
-                return
-            }
-                self.markUpdateCheckSucceeded()
-                if !manual {
-                    guard !self.settings.updateRemindersDisabled,
-                          self.settings.updateSkippedVersion != info.tagName else { return }
-                }
-                self.availableUpdate = info
-        } catch {
-            if manual {
-                self.alert = AppAlert(title: self.localized("检查更新失败"), message: error.localizedDescription)
-            }
-        }
-    }
-    }
-
-    private func markUpdateCheckSucceeded() {
-        UserDefaults.standard.set(Date(), forKey: "MediaLib.update.lastSuccessfulCheck")
-    }
-
-    /// 每天第一次启动时静默检查一次更新；失败时保留重试机会，但用短间隔节流避免反复打 GitHub。
-    func checkForUpdatesDailyIfNeeded() {
-        guard !settings.updateRemindersDisabled else { return }
-        let defaults = UserDefaults.standard
-        let now = Date()
-        if let lastAttempt = defaults.object(forKey: "MediaLib.update.lastBackgroundAttempt") as? Date,
-           now.timeIntervalSince(lastAttempt) < 4 * 60 * 60 {
-            return
-        }
-        if let lastSuccess = defaults.object(forKey: "MediaLib.update.lastSuccessfulCheck") as? Date,
-           Calendar.current.isDate(lastSuccess, inSameDayAs: now) {
-            return
-        }
-        defaults.set(now, forKey: "MediaLib.update.lastBackgroundAttempt")
-        checkForUpdates(manual: false)
-    }
-
-    /// 记录启动次数；恰好第三次启动时邀请用户赞赏（只弹一次）。
-    func registerLaunchAndMaybeInvite() {
-        let countKey = "MediaLib.launchCount"
-        let invitedKey = "MediaLib.sponsorInvited"
-        let count = UserDefaults.standard.integer(forKey: countKey) + 1
-        UserDefaults.standard.set(count, forKey: countKey)
-        guard count == 3, !UserDefaults.standard.bool(forKey: invitedKey) else { return }
-        UserDefaults.standard.set(true, forKey: invitedKey)
-        showingSponsorPrompt = true
-    }
-
     /// 从访达双击/「打开方式」进入的本地媒体文件：在库内则播放库内条目
     /// （保留进度、剧集队列等），否则构造临时条目直接播放，不写入媒体库。
     func playExternalFiles(_ urls: [URL]) {
@@ -7822,7 +7750,7 @@ final class AppState: ObservableObject {
         }
     }
 
-    private func updateWatchlistInMemory(id: String, watchlist: Bool) {
+    func updateWatchlistInMemory(id: String, watchlist: Bool) {
         func updated(_ item: MediaItem) -> MediaItem {
             guard item.id == id else { return item }
             var copy = item
@@ -7954,127 +7882,6 @@ final class AppState: ObservableObject {
         }
     }
 
-    // MARK: - 批量选择操作（C2）
-
-    /// 进入/退出多选模式；退出时清空已选。
-    func toggleSelectionMode() {
-        isSelectionModeActive.toggle()
-        if !isSelectionModeActive {
-            selectedItemIDs.removeAll()
-        }
-    }
-
-    func exitSelectionMode() {
-        guard isSelectionModeActive || !selectedItemIDs.isEmpty else { return }
-        isSelectionModeActive = false
-        selectedItemIDs.removeAll()
-    }
-
-    func toggleItemSelection(_ id: String) {
-        if selectedItemIDs.contains(id) {
-            selectedItemIDs.remove(id)
-        } else {
-            selectedItemIDs.insert(id)
-        }
-    }
-
-    /// 在当前可见集合范围内全选 / 取消全选。
-    func setSelection(_ ids: [String], selected: Bool) {
-        if selected {
-            selectedItemIDs.formUnion(ids)
-        } else {
-            selectedItemIDs.subtract(ids)
-        }
-    }
-
-    /// 由 ID 集合还原为有序条目（按传入顺序），仅取库内存在的条目。
-    func resolveSelectedItems(orderedBy ordered: [MediaItem]) -> [MediaItem] {
-        ordered.filter { selectedItemIDs.contains($0.id) }
-    }
-
-    private var currentSelectionItems: [MediaItem] {
-        items.filter { selectedItemIDs.contains($0.id) }
-    }
-
-    func batchMarkWatched(watched: Bool) {
-        let targets = currentSelectionItems.filter { $0.type != .music }
-        guard !targets.isEmpty else { return }
-        markAllWatched(targets, watched: watched)
-    }
-
-    func batchSetWatchlist(_ watchlist: Bool) {
-        let targets = currentSelectionItems.filter { $0.type != .music }
-        guard !targets.isEmpty else { return }
-        guard let mediaRepository else { return }
-        var hadError = false
-        for item in targets {
-            updateWatchlistInMemory(id: item.id, watchlist: watchlist)
-            do {
-                try mediaRepository.setWatchlist(id: item.id, watchlist: watchlist)
-            } catch {
-                hadError = true
-                logger?.log("批量更新想看状态失败：\(error.localizedDescription)", level: .warning)
-            }
-            // 与单条 toggleWatchlist 保持一致：批量改动也推送到 Trakt 想看清单。
-            syncTraktWatchlist(item, add: watchlist)
-        }
-        if hadError {
-            alert = AppAlert(title: "部分更新失败", message: "有条目的想看状态未能更新。")
-        } else {
-            showFloatingNotice(
-                title: watchlist ? "已加入想看" : "已从想看移除",
-                message: "\(targets.count) 个内容",
-                kind: watchlist ? .success : .info,
-                duration: 3.2
-            )
-        }
-    }
-
-    func batchUpdateRating(_ rating: Double?) {
-        let targets = currentSelectionItems
-        guard !targets.isEmpty else { return }
-        guard let mediaRepository else { return }
-        var hadError = false
-        for item in targets {
-            updateRatingInMemory(id: item.id, rating: rating)
-            do {
-                try mediaRepository.updateRating(id: item.id, rating: rating)
-            } catch {
-                hadError = true
-                logger?.log("批量更新评级失败：\(error.localizedDescription)", level: .warning)
-            }
-        }
-        if hadError {
-            alert = AppAlert(title: "部分更新失败", message: "有条目的评级未能更新。")
-        } else {
-            showFloatingNotice(
-                title: rating == nil ? "已清除评级" : "评级已更新",
-                message: "\(targets.count) 个内容 · \(userRatingNoticeSuffix(rating))",
-                kind: .success,
-                duration: 3.2
-            )
-        }
-    }
-
-    func batchClearPlaybackHistory() {
-        let targets = currentSelectionItems.filter { $0.hasPlaybackTrace }
-        guard !targets.isEmpty else { return }
-        clearPlaybackHistory(targets)
-    }
-
-    /// 将已选条目从内部索引移除（不删除磁盘文件）。本地来源在下次扫描时可能重新入库。
-    func batchRemoveFromLibrary() {
-        let ids = Array(selectedItemIDs)
-        guard !ids.isEmpty, let mediaRepository else { return }
-        do {
-            try mediaRepository.deleteItems(ids: ids)
-            reload()
-            exitSelectionMode()
-        } catch {
-            showError("批量移除失败", error)
-        }
-    }
-
     func reclassify(_ item: MediaItem, as type: MediaType) {
         do {
             try mediaRepository?.updateType(id: item.id, type: type)
@@ -8109,7 +7916,7 @@ final class AppState: ObservableObject {
         }
     }
 
-    private func updateRatingInMemory(id: String, rating: Double?) {
+    func updateRatingInMemory(id: String, rating: Double?) {
         func updated(_ item: MediaItem) -> MediaItem {
             guard item.id == id else { return item }
             var copy = item

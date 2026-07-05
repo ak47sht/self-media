@@ -52,7 +52,9 @@ public struct M3UParser {
             throw M3UParserError.invalidURL
         }
         
-        let (data, response) = try await URLSession.shared.data(from: requestURL)
+        var request = URLRequest(url: requestURL)
+        request.setValue("MediaLib/1.0", forHTTPHeaderField: "User-Agent")
+        let (data, response) = try await HTTPClient.shared.data(for: request)
         
         guard let httpResponse = response as? HTTPURLResponse,
               (200...299).contains(httpResponse.statusCode) else {

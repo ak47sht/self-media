@@ -37,6 +37,11 @@ let package = Package(
             name: "MediaLibChecks",
             dependencies: ["MediaLibCore"],
             path: "Sources/MediaLibChecks"
+        ),
+        .testTarget(
+            name: "MediaLibCoreTests",
+            dependencies: ["MediaLibCore"],
+            path: "Tests/MediaLibCoreTests"
         )
     ]
 )

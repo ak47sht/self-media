@@ -8,13 +8,14 @@ struct OnlineSourcePreview: Sendable {
 }
 
 actor OnlineSourcePreviewService {
-    private let session: URLSession
+    private let client: HTTPClient
 
     init() {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 15
         configuration.timeoutIntervalForResource = 25
-        self.session = URLSession(configuration: configuration)
+        let session = URLSession(configuration: configuration)
+        self.client = HTTPClient(session: session, defaultTimeout: 15)
     }
 
     func previewVOD(apiBase: String) async throws -> OnlineSourcePreview {
@@ -55,7 +56,7 @@ actor OnlineSourcePreviewService {
         }
         var request = URLRequest(url: url)
         request.setValue("MediaLIB/1.0", forHTTPHeaderField: "User-Agent")
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await client.data(for: request)
         if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
             throw OnlineSourcePreviewError.httpStatus(http.statusCode)
         }

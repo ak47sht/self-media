@@ -1,4 +1,6 @@
+#if canImport(CFNetwork)
 import CFNetwork
+#endif
 import Foundation
 import MediaLibCore
 
@@ -16,13 +18,14 @@ public struct VODPagedResult: Sendable {
 /// 支持 CMS JSON API (苹果CMS/飞飞CMS 格式)
 public class VODService {
     private let db: DatabaseManager
-    private let directSession: URLSession
-    private let systemSession: URLSession
+    private let directClient: HTTPClient
+    private let systemClient: HTTPClient
 
     public init(db: DatabaseManager) {
         self.db = db
-        self.directSession = Self.makeDirectSession()
-        self.systemSession = .shared
+        let directSession = Self.makeDirectSession()
+        self.directClient = HTTPClient(session: directSession, defaultTimeout: 15)
+        self.systemClient = .shared
     }
 
     private static func makeDirectSession() -> URLSession {
@@ -30,20 +33,22 @@ public class VODService {
         configuration.timeoutIntervalForRequest = 15
         configuration.timeoutIntervalForResource = 30
         configuration.waitsForConnectivity = false
+        #if canImport(CFNetwork)
         configuration.connectionProxyDictionary = [
             kCFNetworkProxiesHTTPEnable as String: 0,
             kCFNetworkProxiesHTTPSEnable as String: 0,
             kCFNetworkProxiesSOCKSEnable as String: 0
         ]
+        #endif
         return URLSession(configuration: configuration)
     }
 
     private func loadData(for request: URLRequest) async throws -> (Data, URLResponse) {
         do {
-            return try await directSession.data(for: request)
+            return try await directClient.data(for: request)
         } catch {
             DebugLog.log("VODService", "直连请求失败，尝试系统网络配置: \(error.localizedDescription)")
-            return try await systemSession.data(for: request)
+            return try await systemClient.data(for: request)
         }
     }
 
