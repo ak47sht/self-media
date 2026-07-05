@@ -59,9 +59,10 @@ final class URLSourceHealthMonitor: ObservableObject {
                 }
             }
 
-            await MainActor.run { [weak self] in
+            let completedResults = results
+            await MainActor.run { [weak self, completedResults] in
                 guard let self, self.refreshID == currentRefresh else { return }
-                for (id, state) in results {
+                for (id, state) in completedResults {
                     self.healthByID[id] = state
                 }
                 onUpdated()
