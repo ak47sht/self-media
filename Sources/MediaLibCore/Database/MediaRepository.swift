@@ -132,6 +132,17 @@ public final class MediaRepository {
         try database.query(selectSQL + " ORDER BY title COLLATE NOCASE ASC", map: map(row:))
     }
 
+    public func fetchMusic() throws -> [MediaItem] {
+        try database.query(
+            selectSQL + """
+             WHERE type = ?
+             ORDER BY album COLLATE NOCASE ASC, track_number ASC, title COLLATE NOCASE ASC
+            """,
+            bindings: [.text(MediaType.music.rawValue)],
+            map: map(row:)
+        )
+    }
+
     public func fetch(id: String) throws -> MediaItem? {
         try database.query(
             selectSQL + " WHERE id = ? LIMIT 1",
@@ -295,28 +306,29 @@ public final class MediaRepository {
 
     public func incrementPlayCount(id: String) throws {
         try database.execute(
-            "UPDATE media_items SET play_count = COALESCE(play_count, 0) + 1 WHERE id = ?",
-            bindings: [.text(id)]
+            "UPDATE media_items SET play_count = COALESCE(play_count, 0) + 1, updated_at = ? WHERE id = ?",
+            bindings: [.optionalDate(Date()), .text(id)]
         )
     }
 
     public func resetPlayCount(id: String) throws {
         try database.execute(
-            "UPDATE media_items SET play_count = 0 WHERE id = ?",
-            bindings: [.text(id)]
+            "UPDATE media_items SET play_count = 0, updated_at = ? WHERE id = ?",
+            bindings: [.optionalDate(Date()), .text(id)]
         )
     }
 
     public func resetPlayCounts(ids: [String]) throws {
         guard !ids.isEmpty else { return }
+        let now = Date()
         var startIndex = 0
         while startIndex < ids.count {
             let endIndex = Swift.min(startIndex + 400, ids.count)
             let chunk = ids[startIndex..<endIndex]
             let placeholders = Array(repeating: "?", count: chunk.count).joined(separator: ", ")
             try database.execute(
-                "UPDATE media_items SET play_count = 0 WHERE id IN (\(placeholders))",
-                bindings: chunk.map { .text($0) }
+                "UPDATE media_items SET play_count = 0, updated_at = ? WHERE id IN (\(placeholders))",
+                bindings: [.optionalDate(now)] + chunk.map { .text($0) }
             )
             startIndex = endIndex
         }
